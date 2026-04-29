@@ -105,6 +105,8 @@ type RequestOpts = {
   withBotAuth: boolean;
   /** Request timeout in ms. Defaults to 10s. */
   timeoutMs?: number;
+  /** HTTP method. Defaults to GET. POST is used by the track endpoint. */
+  method?: "GET" | "POST";
 };
 
 /**
@@ -124,9 +126,10 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
       const headers: Record<string, string> = { Accept: "application/json" };
       if (opts.withBotAuth) headers.Authorization = `Bearer ${env.TAME_BOT_TOKEN}`;
 
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+      const method = opts.method ?? "GET";
+      const res = await fetch(url, { method, headers, signal: AbortSignal.timeout(timeoutMs) });
       const ms = Math.round(performance.now() - startedAt);
-      log.info({ method: "GET", url: path, status: res.status, ms }, "tame api call");
+      log.info({ method, url: path, status: res.status, ms }, "tame api call");
 
       if (res.status === 401) {
         throw new TameApiError("unauthorized", `401 from ${path} — TAME_BOT_TOKEN mismatch`, 401);
@@ -160,7 +163,7 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
         isTimeout ? "timeout" : "network",
         err instanceof Error ? err.message : String(err),
       );
-      log.warn({ method: "GET", url: path, ms, kind: wrapped.kind }, "tame api error");
+      log.warn({ method: opts.method ?? "GET", url: path, ms, kind: wrapped.kind }, "tame api error");
       lastError = wrapped;
       if (attempt === 0) continue;
       throw wrapped;
@@ -205,6 +208,41 @@ export const tame = {
       if (err instanceof TameApiError && err.kind === "not_found") return null;
       throw err;
     }
+  },
+
+  /**
+   * Enrolls an unknown player into the tracked roster + captures a fresh
+   * snapshot + returns their preview, all in one server hop. Bigger timeout
+   * than other endpoints because the server has to make two upstream calls
+   * (Mojang + Hypixel) before responding.
+   */
+  async track(
+    ign: string,
+  ): Promise<{ uuid: string; ign: string; preview: PlayerPreview | null } | null> {
+    const trimmed = ign.trim();
+    if (!trimmed) return null;
+    try {
+      return await requestJson<{ uuid: string; ign: string; preview: PlayerPreview | null }>(
+        `/api/bot/track/${encodeURIComponent(trimmed)}`,
+        { withBotAuth: true, method: "POST", timeoutMs: 15_000 },
+      );
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  },
+
+  /**
+   * Try `preview()` first; if the UUID isn't in the tracked roster yet,
+   * fall back to `track()` to enroll + snapshot, then use the preview that
+   * comes back in that response. Single helper so each per-game command
+   * doesn't have to repeat the dance.
+   */
+  async previewOrTrack(resolved: ResolvedPlayer): Promise<PlayerPreview | null> {
+    const existing = await tame.preview(resolved.uuid);
+    if (existing) return existing;
+    const tracked = await tame.track(resolved.ign);
+    return tracked?.preview ?? null;
   },
 
   /**

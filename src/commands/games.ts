@@ -62,12 +62,12 @@ function makeGameCommand(spec: GameSpec): BotCommand {
       }
 
       const [preview, session] = await Promise.all([
-        tame.preview(resolved.uuid),
+        tame.previewOrTrack(resolved),
         tame.session(resolved.uuid).catch(() => ({ online: false }) as const),
       ]);
       if (!preview) {
         await interaction.editReply(
-          `**${resolved.ign}** isn't tracked on stats.tame.gg yet. Visit ${tame.playerUrl(resolved.ign)} to start tracking.`,
+          `Couldn't track **${resolved.ign}** — Hypixel might be down or they have their API turned off.`,
         );
         return;
       }

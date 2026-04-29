@@ -26,14 +26,16 @@ export const statsCommand: BotCommand = {
     }
 
     const [preview, session] = await Promise.all([
-      tame.preview(resolved.uuid),
+      // Auto-enrolls untracked players via tame.track() under the hood, so the
+      // first call from any guild for a new IGN doesn't need a website round-trip.
+      tame.previewOrTrack(resolved),
       // Session failures shouldn't block the stats embed — we still want to
       // render the OG image and metric tiles even if Hypixel /v2/status is down.
       tame.session(resolved.uuid).catch(() => ({ online: false }) as const),
     ]);
     if (!preview) {
       await interaction.editReply(
-        `**${resolved.ign}** isn't tracked on stats.tame.gg yet. Visit ${tame.playerUrl(resolved.ign)} to start tracking.`,
+        `Couldn't track **${resolved.ign}** — Hypixel might be down or they have their API turned off.`,
       );
       return;
     }
