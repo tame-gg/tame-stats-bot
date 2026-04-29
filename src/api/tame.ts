@@ -66,6 +66,15 @@ export type RecentlyTrackedPlayer = {
   addedAt: number;
 };
 
+export type GuildMember = {
+  uuid: string;
+  /** Populated when the member is in stats.tame.gg's tracked roster, else null. */
+  ign: string | null;
+  rank: string | null;
+  /** Unix seconds. */
+  joined: number | null;
+};
+
 export type GuildSummary = {
   id: string;
   name: string;
@@ -76,7 +85,10 @@ export type GuildSummary = {
   createdAt: number | null;
   exp: number;
   memberCount: number;
+  /** How many members are tracked on stats.tame.gg. */
+  trackedCount: number;
   preferredGames: string[];
+  members: GuildMember[];
 };
 
 export type HypixelNetworkStatus = {
@@ -306,15 +318,20 @@ export const tame = {
   },
 
   /**
-   * Guild lookup by name. Returns null when the guild doesn't exist (404).
+   * Guild lookup. `query` may be either a guild name or a player IGN — the
+   * server smart-detects (player IGN tried first if the shape matches, falls
+   * back to guild name). Returns null when neither match.
    */
-  async guild(name: string): Promise<GuildSummary | null> {
-    const trimmed = name.trim();
+  async guild(query: string): Promise<GuildSummary | null> {
+    const trimmed = query.trim();
     if (!trimmed) return null;
-    const params = new URLSearchParams({ name: trimmed });
+    const params = new URLSearchParams({ q: trimmed });
     try {
       return await requestJson<GuildSummary>(`/api/bot/guild?${params.toString()}`, {
         withBotAuth: true,
+        // Server may hop Mojang → Hypixel /v2/guild + a tracked_players query,
+        // so leave the standard 10s default a bit loose.
+        timeoutMs: 12_000,
       });
     } catch (err) {
       if (err instanceof TameApiError && err.kind === "not_found") return null;
