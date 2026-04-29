@@ -1,5 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
+import { THEME, codeBlock, padLeft, padRight, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import type { BotCommand } from "./types.ts";
 
 function relativeAge(addedAtSec: number): string {
@@ -28,16 +29,27 @@ export const recentCommand: BotCommand = {
       return;
     }
 
-    const description = rows
-      .map((row) => `· **${row.ign}** — added ${relativeAge(row.addedAt)}`)
-      .join("\n");
+    // Fixed-width columns so the codeblock's monospace keeps things aligned.
+    const widestRank = String(rows.length).length + 1; // "10." → 3
+    const ignWidth = Math.min(16, Math.max(...rows.map((r) => r.ign.length)));
+    const ages = rows.map((r) => relativeAge(r.addedAt));
+    const ageWidth = Math.max(...ages.map((a) => a.length));
+
+    const lines = rows.map((row, index) => {
+      const rank = padLeft(`${index + 1}.`, widestRank);
+      const ign = padRight(row.ign, ignWidth);
+      const age = padLeft(ages[index] as string, ageWidth);
+      return `${rank}  ${ign}   added ${age}`;
+    });
 
     const embed = new EmbedBuilder()
+      .setAuthor(themeAuthor("recent"))
       .setTitle("Recently tracked players")
       .setURL(tame.siteUrl("/tracked"))
-      .setColor(0x8b6f47)
-      .setDescription(description)
-      .setFooter({ text: "stats.tame.gg/tracked", iconURL: tame.faviconUrl() });
+      .setColor(THEME.sidebar)
+      .setDescription("*Newest entries on the tame.gg roster.*")
+      .addFields({ name: "​", value: codeBlock(lines), inline: false })
+      .setFooter(themeFooter("tracked"));
 
     await interaction.editReply({ embeds: [embed] });
   },

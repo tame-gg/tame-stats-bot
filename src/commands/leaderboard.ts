@@ -1,6 +1,7 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { tame, type PlayerPreview } from "../api/tame.ts";
 import { getLinksForGuild } from "../db.ts";
+import { THEME, codeBlock, padLeft, padRight, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { formatNumber, mapLimit } from "../util.ts";
 import type { BotCommand } from "./types.ts";
 
@@ -25,12 +26,6 @@ const metricChoices = [
   { name: "Score", value: "score" },
 ];
 
-const MEDAL_EMOJI = ["🥇", "🥈", "🥉"] as const;
-
-function rankPrefix(index: number): string {
-  return MEDAL_EMOJI[index] ?? `\`#${String(index + 1).padStart(2, "0")}\``;
-}
-
 function readMetric(
   preview: PlayerPreview,
   gameId: string,
@@ -40,6 +35,14 @@ function readMetric(
   const metric = game?.metrics.find((m) => m.key === metricKey);
   if (!metric || metric.value === null) return null;
   return { value: metric.value, digits: metric.digits };
+}
+
+function gameLabel(id: string): string {
+  return games.find((g) => g.value === id)?.name ?? id.replaceAll("_", " ");
+}
+
+function metricLabel(key: string): string {
+  return metricChoices.find((m) => m.value === key)?.name ?? key;
 }
 
 export const leaderboardCommand: BotCommand = {
@@ -90,26 +93,34 @@ export const leaderboardCommand: BotCommand = {
 
     if (ranked.length === 0) {
       await interaction.editReply(
-        `No ${game.replaceAll("_", " ")} ${metric} data found for linked players.`,
+        `No ${gameLabel(game)} ${metricLabel(metric)} data found for linked players.`,
       );
       return;
     }
 
-    const description = ranked
-      .map(
-        (row, index) =>
-          `${rankPrefix(index)} <@${row.link.discord_user_id}> (**${row.link.ign}**) · \`${formatNumber(row.value, row.digits)}\``,
-      )
-      .join("\n");
+    // Fixed-width codeblock rows so the monospace render keeps the columns
+    // tidy. We drop the `<@discord_user_id>` mention from the rank line
+    // because Discord doesn't expand mentions inside codeblocks; the
+    // canonical IGN is what reads as "this player" anyway.
+    const rankWidth = String(ranked.length).length + 1; // "10." → 3
+    const ignWidth = Math.min(16, Math.max(...ranked.map((r) => r.link.ign.length)));
+    const valueStrs = ranked.map((r) => formatNumber(r.value, r.digits));
+    const valueWidth = Math.max(...valueStrs.map((s) => s.length));
+
+    const lines = ranked.map((row, index) => {
+      const rank = padLeft(`${index + 1}.`, rankWidth);
+      const ign = padRight(row.link.ign, ignWidth);
+      const value = padLeft(valueStrs[index] as string, valueWidth);
+      return `${rank}  ${ign}   ${metricLabel(metric)} ${value}`;
+    });
 
     const embed = new EmbedBuilder()
-      .setTitle(`${game.replaceAll("_", " ")} · ${metric}`)
-      .setColor(0xe8b84a)
-      .setDescription(description)
-      .setFooter({
-        text: "Tracked Discord users only · /link <ign> to join",
-        iconURL: tame.faviconUrl(),
-      });
+      .setAuthor(themeAuthor(`leaderboard · ${gameLabel(game).toLowerCase()}`))
+      .setTitle(`${gameLabel(game)} · ${metricLabel(metric)}`)
+      .setColor(THEME.sidebar)
+      .setDescription("*Linked Discord users in this server, ranked.*")
+      .addFields({ name: "​", value: codeBlock(lines), inline: false })
+      .setFooter(themeFooter(null));
 
     await interaction.editReply({ embeds: [embed] });
   },

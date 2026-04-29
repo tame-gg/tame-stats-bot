@@ -1,5 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
+import { THEME, statField, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { formatNumber } from "../util.ts";
 import type { BotCommand } from "./types.ts";
 
@@ -24,16 +25,23 @@ export const serverStatusCommand: BotCommand = {
           ? formatNumber(status.players, 0)
           : "—";
 
+    // Single headline — current player count — and a one-line italic state
+    // blurb. Sidebar stays ink even when offline; we don't paint the whole
+    // embed red because that's louder than the actual signal.
+    const stateLine = status.online ? "*Hypixel is online.*" : "*Hypixel is offline.*";
+
     const embed = new EmbedBuilder()
-      .setTitle("Hypixel network status")
+      .setAuthor(themeAuthor("network status"))
+      .setTitle("Hypixel network")
       .setURL("https://hypixel.net/")
-      .setColor(status.online ? 0x55ff55 : 0xff5555)
+      .setColor(THEME.sidebar)
+      .setDescription(stateLine)
       .addFields(
-        { name: "Status", value: status.online ? "🟢 online" : "🔴 offline", inline: true },
-        { name: "Players", value: playerLine, inline: true },
-        { name: "Version", value: status.version ?? "—", inline: true },
+        statField("Players", playerLine),
+        statField("Version", status.version ?? "—"),
+        statField("State", status.online ? "Online" : "Offline"),
       )
-      .setFooter({ text: "stats.tame.gg · live status", iconURL: tame.faviconUrl() });
+      .setFooter(themeFooter(null));
 
     await interaction.editReply({ embeds: [embed] });
   },

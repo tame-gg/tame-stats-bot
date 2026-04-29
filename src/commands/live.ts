@@ -6,6 +6,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import { tame } from "../api/tame.ts";
+import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { compactSession } from "../util.ts";
 import { resolveCommandTarget } from "./target.ts";
 import type { BotCommand } from "./types.ts";
@@ -37,14 +38,20 @@ export const liveCommand: BotCommand = {
     const resolved = target.player;
 
     const session = await tame.session(resolved.uuid);
-    const dot = session.online ? "🟢" : "⚫";
+
+    // /live is online-state-focused, not player-focused — sidebar is the
+    // ink default. Online vs. offline reads through the description ("●"
+    // marker + italic state line) rather than a green/red sidebar.
+    const dot = session.online ? "●" : "○";
+    const stateLine = session.online ? `*${compactSession(session)}.*` : `*Offline.*`;
 
     const embed = new EmbedBuilder()
-      .setTitle(`${dot} ${resolved.ign}`)
+      .setAuthor(themeAuthor("live"))
+      .setTitle(`${dot}  ${resolved.ign}`)
       .setURL(tame.liveUrl(resolved.ign))
-      .setColor(session.online ? 0x55ff55 : 0x8b6f47)
-      .setDescription(compactSession(session))
-      .setFooter({ text: `stats.tame.gg/${resolved.ign}/live`, iconURL: tame.faviconUrl() });
+      .setColor(THEME.sidebar)
+      .setDescription(stateLine)
+      .setFooter(themeFooter(`${resolved.ign}/live`));
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
