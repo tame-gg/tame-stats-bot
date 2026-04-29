@@ -1,6 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
-import { upsertLink } from "../db.ts";
+import { getLinkForUser, upsertLink } from "../db.ts";
 import { log } from "../log.ts";
 import type { BotCommand } from "./types.ts";
 
@@ -29,6 +29,12 @@ export const linkCommand: BotCommand = {
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ign = interaction.options.getString("ign", true);
+    const existingLink = getLinkForUser(interaction.user.id);
+
+    if (existingLink) {
+      await interaction.editReply(`Already linked to ${existingLink.ign}!`);
+      return;
+    }
 
     let socials: Awaited<ReturnType<typeof tame.socials>> = null;
     try {
@@ -71,11 +77,8 @@ export const linkCommand: BotCommand = {
       return;
     }
 
-    upsertLink(interaction.user.id, socials.uuid, socials.ign, interaction.guildId);
-
-    // Best-effort mirror to the website so admin/profile pages can show
-    // the link. Local upsert above is the source of truth — if this push
-    // fails, the user is still linked locally and /leaderboard etc. work.
+    // Save to the website/Postgres first. If this fails, do not create the
+    // local link or report success; the user can retry without getting stuck.
     try {
       await tame.pushDiscordLink({
         discordUserId: interaction.user.id,
@@ -87,6 +90,24 @@ export const linkCommand: BotCommand = {
       });
     } catch (err) {
       log.warn({ err, userId: interaction.user.id }, "discord-link mirror push failed");
+      await interaction.editReply(
+        "Verified your IGN, but couldn't save the link to Postgres. Try /link again in a moment.",
+      );
+      return;
+    }
+
+    try {
+      upsertLink(interaction.user.id, socials.uuid, socials.ign, interaction.guildId);
+      const saved = getLinkForUser(interaction.user.id);
+      if (!saved || saved.uuid !== socials.uuid) {
+        throw new Error("link verification read-after-write failed");
+      }
+    } catch (err) {
+      log.error({ err, userId: interaction.user.id, uuid: socials.uuid }, "local link save failed");
+      await interaction.editReply(
+        "Verified your IGN and saved it to Postgres, but couldn't save the bot's local link. Try again in a moment.",
+      );
+      return;
     }
 
     await interaction.editReply(
