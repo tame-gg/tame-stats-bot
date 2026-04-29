@@ -1,6 +1,7 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
 import { addWatch, countWatchesForUser } from "../db.ts";
+import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { log } from "../log.ts";
 import { seedWatchedPlayer } from "../poller/index.ts";
 import type { BotCommand } from "./types.ts";
@@ -45,35 +46,41 @@ export const watchCommand: BotCommand = {
     const session = await seedWatchedPlayer(resolved.uuid).catch(() => null);
 
     // Probe DM permissions so the user knows immediately whether alerts
-    // will reach them. If their privacy settings block DMs from server
-    // members, this fails and we tell them how to fix it.
-    let dmStatus = "";
+    // will reach them. Uses the same themed shell as the real watcher DM
+    // (gold sidebar, tame.gg eyebrow) so the user sees the look they'll
+    // get on a real alert.
+    let dmOk = false;
     try {
       await interaction.user.send({
         embeds: [
           new EmbedBuilder()
-            .setColor(0x55ff55)
+            .setAuthor(themeAuthor("watch · preview"))
+            .setTitle(resolved.ign)
+            .setColor(THEME.accent)
             .setDescription(
-              `✦ Now watching **${resolved.ign}** — alerts will look like this when they log on.`,
-            ),
+              `*Watcher set — alerts will look like this when they log on.*`,
+            )
+            .setFooter(themeFooter(`${resolved.ign}/live`)),
         ],
       });
-      dmStatus = "✓ DMs work — you'll get pings when they log on.";
+      dmOk = true;
     } catch (err) {
       log.debug({ err, userId }, "watch test DM failed");
-      dmStatus =
-        "⚠️ I can't DM you. Open Discord → Settings → Privacy & Safety → enable " +
-        "**Allow direct messages from server members** for this server, or alerts won't reach you.";
     }
 
+    // Plain ephemeral content per the design — no embed wrapping. Bold the
+    // canonical IGN (Mojang display-cased), italicize the state suffix.
     const baseLine = inserted
-      ? `Now watching **${resolved.ign}**.`
+      ? `Watching **${resolved.ign}** — you'll get a DM when they log on.`
       : `**${resolved.ign}** is already on your watchlist.`;
     const stateLine = session?.online
-      ? `They're online right now — you'll get an alert the next time they come back online after a logout.`
-      : `They're offline. You'll get an alert the next time they log on.`;
+      ? `*They're online right now — alert fires next time they come back online after a logout.*`
+      : `*They're offline. Alert fires next time they log on.*`;
+    const dmLine = dmOk
+      ? `✓ DMs work — you'll get pings.`
+      : `⚠️ I can't DM you. Open Discord → Settings → Privacy & Safety → enable **Allow direct messages from server members**, or alerts won't reach you.`;
 
-    await interaction.editReply(`${baseLine} ${stateLine}\n\n${dmStatus}`);
+    await interaction.editReply(`${baseLine}\n${stateLine}\n${dmLine}`);
   },
 };
 watchCommand.json = watchCommand.data.toJSON();

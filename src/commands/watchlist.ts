@@ -1,13 +1,11 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { tame, type HypixelSession } from "../api/tame.ts";
 import { getWatchesForUser } from "../db.ts";
+import { THEME, codeBlock, padLeft, padRight, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { compactSession, mapLimit } from "../util.ts";
 import type { BotCommand } from "./types.ts";
 
-// Discord caps embed fields at 25, and the in-app /watch limit is also 25,
-// so this matches by construction. Slicing is just paranoia in case the cap
-// ever changes upstream.
-const MAX_FIELDS = 25;
+const MAX_ROWS = 25;
 
 export const watchlistCommand: BotCommand = {
   data: new SlashCommandBuilder().setName("watchlist").setDescription("Show your watchlist and online states."),
@@ -20,7 +18,7 @@ export const watchlistCommand: BotCommand = {
       return;
     }
 
-    const rows = await mapLimit(watches.slice(0, MAX_FIELDS), 5, async (watch) => {
+    const rows = await mapLimit(watches.slice(0, MAX_ROWS), 5, async (watch) => {
       let session: HypixelSession | null = null;
       try {
         session = await tame.session(watch.uuid);
@@ -30,17 +28,29 @@ export const watchlistCommand: BotCommand = {
       return { watch, session };
     });
 
+    // Fixed-width codeblock format so columns line up:
+    //   `<n>.  <ign>   <state>   <session-info>`
+    // `●` for online, `○` for offline — bare ASCII-ish marks, no medal emoji
+    // and no per-state coloring (the prompt is explicit about that).
+    const rankWidth = String(rows.length).length + 1;
+    const ignWidth = Math.min(16, Math.max(...rows.map((r) => r.watch.ign.length)));
+
+    const lines = rows.map(({ watch, session }, index) => {
+      const rank = padLeft(`${index + 1}.`, rankWidth);
+      const ign = padRight(watch.ign, ignWidth);
+      const dot = session?.online ? "●" : "○";
+      const state = session?.online ? "online " : "offline";
+      const detail = session?.online ? `· ${compactSession(session)}` : "";
+      return `${rank}  ${dot} ${ign}   ${state}${detail ? `   ${detail}` : ""}`;
+    });
+
     const embed = new EmbedBuilder()
+      .setAuthor(themeAuthor("watchlist"))
       .setTitle(`${interaction.user.username}'s watchlist`)
-      .setColor(0x8b6f47)
-      .addFields(
-        rows.map(({ watch, session }) => ({
-          name: `${session?.online ? "🟢" : "⚫"} ${watch.ign}`,
-          value: compactSession(session),
-          inline: true,
-        })),
-      )
-      .setFooter({ text: `${watches.length} watched · stats.tame.gg`, iconURL: tame.faviconUrl() });
+      .setColor(THEME.sidebar)
+      .setDescription(`*${watches.length} watched · DM alerts on log-on.*`)
+      .addFields({ name: "​", value: codeBlock(lines), inline: false })
+      .setFooter(themeFooter(null));
 
     await interaction.editReply({ embeds: [embed] });
   },

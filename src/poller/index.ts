@@ -9,8 +9,9 @@ import {
 } from "discord.js";
 import { TameApiError, tame, type HypixelSession } from "../api/tame.ts";
 import { getDistinctWatchedPlayers, getGuildConfigsWithAlerts, getWatchersForUuid } from "../db.ts";
+import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { log } from "../log.ts";
-import { mapLimit } from "../util.ts";
+import { compactSession, mapLimit } from "../util.ts";
 import { POLLER_CONSTANTS, pollerState } from "./state.ts";
 
 let scheduled: ReturnType<typeof setTimeout> | null = null;
@@ -54,18 +55,33 @@ function recordDmSuccess(userId: string): void {
   pollerState.dmFailures.delete(userId);
 }
 
+/**
+ * Watcher DM (and guild-channel mirror) alert embed. Player-focused →
+ * gold sidebar, `tame.gg / now online` author eyebrow, italic single-line
+ * description. The embed shell stays monochrome; the gold sidebar is the
+ * only color cue, matching the rest of the player-focused embeds.
+ */
 function buildAlertEmbed(ign: string, session: HypixelSession): EmbedBuilder {
-  const desc = session.gameType
-    ? `✦ **${ign}** is online · ${[session.gameType, session.mode, session.map]
-        .filter(Boolean)
-        .join(" · ")}`
-    : `✦ **${ign}** is online`;
-  return new EmbedBuilder().setColor(0x55ff55).setDescription(desc);
+  // `compactSession` returns "Online" when there's no gameType/mode info,
+  // and "Bedwars · Doubles · …" when there is. Keep its capitalization —
+  // game/mode names are proper nouns and lowercasing reads as a bug.
+  const detail = compactSession(session);
+  const description = detail !== "Online"
+    ? `*Just logged on — playing ${detail}.*`
+    : `*Just logged on.*`;
+  return new EmbedBuilder()
+    .setAuthor(themeAuthor("now online"))
+    .setTitle(ign)
+    .setURL(tame.liveUrl(ign))
+    .setColor(THEME.accent)
+    .setDescription(description)
+    .setFooter(themeFooter(`${ign}/live`));
 }
 
 function buildAlertRow(ign: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setLabel("Open live stats").setStyle(ButtonStyle.Link).setURL(tame.liveUrl(ign)),
+    new ButtonBuilder().setLabel("Open live tracker").setStyle(ButtonStyle.Link).setURL(tame.liveUrl(ign)),
+    new ButtonBuilder().setLabel("Profile").setStyle(ButtonStyle.Link).setURL(tame.playerUrl(ign)),
   );
 }
 
