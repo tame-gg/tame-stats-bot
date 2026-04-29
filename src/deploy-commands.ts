@@ -1,4 +1,4 @@
-import { REST, Routes } from "discord.js";
+import { ApplicationIntegrationType, InteractionContextType, REST, Routes } from "discord.js";
 import { commands } from "./commands/index.ts";
 import { env } from "./env.ts";
 import { log } from "./log.ts";
@@ -11,9 +11,9 @@ import { log } from "./log.ts";
  */
 export async function registerSlashCommands(): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);
-  const body = commands.map((command) => command.json);
 
   if (env.DISCORD_DEV_GUILD_ID) {
+    const body = commands.map((command) => command.json);
     await rest.put(
       Routes.applicationGuildCommands(env.DISCORD_APP_ID, env.DISCORD_DEV_GUILD_ID),
       { body },
@@ -21,6 +21,19 @@ export async function registerSlashCommands(): Promise<void> {
     log.info({ guildId: env.DISCORD_DEV_GUILD_ID, count: body.length }, "registered guild commands");
     return;
   }
+
+  const body = commands.map((command) => ({
+    ...(command.json as Record<string, unknown>),
+    integration_types: [
+      ApplicationIntegrationType.GuildInstall,
+      ApplicationIntegrationType.UserInstall,
+    ],
+    contexts: [
+      InteractionContextType.Guild,
+      InteractionContextType.BotDM,
+      InteractionContextType.PrivateChannel,
+    ],
+  }));
 
   await rest.put(Routes.applicationCommands(env.DISCORD_APP_ID), { body });
   log.info({ count: body.length }, "registered global commands");
