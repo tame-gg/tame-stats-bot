@@ -103,7 +103,14 @@ const baseUrl = env.TAME_API_BASE.replace(/\/+$/, "");
 
 export class TameApiError extends Error {
   constructor(
-    public kind: "unauthorized" | "not_found" | "client" | "server" | "network" | "timeout",
+    public kind:
+      | "unauthorized"
+      | "forbidden"
+      | "not_found"
+      | "client"
+      | "server"
+      | "network"
+      | "timeout",
     message: string,
     public status?: number,
   ) {
@@ -145,6 +152,19 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
 
       if (res.status === 401) {
         throw new TameApiError("unauthorized", `401 from ${path} — TAME_BOT_TOKEN mismatch`, 401);
+      }
+      if (res.status === 403) {
+        // 403s carry a user-facing reason (e.g. blacklist) — pull the body's
+        // `message` (or `error`) so we can surface it to the caller verbatim.
+        let reason = `403 from ${path}`;
+        try {
+          const body = (await res.json()) as { message?: unknown; error?: unknown };
+          if (typeof body.message === "string" && body.message.length > 0) reason = body.message;
+          else if (typeof body.error === "string" && body.error.length > 0) reason = body.error;
+        } catch {
+          /* body wasn't JSON — keep the default reason */
+        }
+        throw new TameApiError("forbidden", reason, 403);
       }
       if (res.status === 404) {
         throw new TameApiError("not_found", `404 from ${path}`, 404);

@@ -82,6 +82,12 @@ function humanizeCommandError(err: unknown): string {
     if (err.kind === "unauthorized") {
       return "Bot is not properly configured — contact the bot owner. (TAME_BOT_TOKEN mismatch)";
     }
+    if (err.kind === "forbidden") {
+      // 403s carry a server-supplied message (blacklist hits, etc.) — show
+      // it verbatim so users see "This username is in the tracking blacklist!"
+      // and not a generic error.
+      return err.message;
+    }
     if (err.kind === "timeout" || err.kind === "network") {
       return "stats.tame.gg looks unreachable right now. Try again in a moment.";
     }
