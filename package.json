@@ -1,0 +1,22 @@
+{
+  "name": "tame-stats-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch run src/index.ts",
+    "start": "bun run src/index.ts",
+    "register": "bun run src/deploy-commands.ts",
+    "typecheck": "bun tsc --noEmit"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "pino": "^9.6.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.2",
+    "pino-pretty": "^11.3.0",
+    "typescript": "^5.7.3"
+  }
+}

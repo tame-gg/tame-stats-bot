@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    # Expose /health on host port 3001 by default — leaving 3000 free since
+    # tame-stats often runs there in dev. Override HEALTH_PORT in .env to match.
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
