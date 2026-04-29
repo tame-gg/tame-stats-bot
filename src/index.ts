@@ -3,6 +3,7 @@ import { runStartupSelfCheck } from "./api/self-check.ts";
 import { TameApiError } from "./api/tame.ts";
 import { dispatchAutocomplete, dispatchCommand } from "./commands/index.ts";
 import { migrate } from "./db.ts";
+import { registerSlashCommands } from "./deploy-commands.ts";
 import { env } from "./env.ts";
 import { startHealthServer, stopHealthServer } from "./health.ts";
 import { log } from "./log.ts";
@@ -17,6 +18,17 @@ const client = new Client({
 client.once("ready", async (readyClient) => {
   log.info({ user: readyClient.user.tag }, "Discord client ready");
   await runStartupSelfCheck();
+  // Discord's PUT is idempotent and the call is fast; doing it on every boot
+  // is cheaper than teaching every host to run `bun run register` manually.
+  // If the env var is explicitly "0" / "false", skip — handy for reducing
+  // Discord chatter on rapid restarts.
+  if (env.AUTO_REGISTER_COMMANDS) {
+    try {
+      await registerSlashCommands();
+    } catch (err) {
+      log.error({ err }, "auto-register slash commands failed");
+    }
+  }
   startPoller(readyClient);
 });
 

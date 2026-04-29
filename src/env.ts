@@ -13,7 +13,13 @@ const envSchema = z.object({
   // Set to 0 to disable. Bun.serve binds to 0.0.0.0 by default.
   HEALTH_PORT: z
     .preprocess((v) => (v === "" || v === undefined ? 3000 : Number(v)), z.number().int().min(0).max(65535))
-    .default(3000)
+    .default(3000),
+  // PUT slash commands to Discord on every boot. Default true so hosts that
+  // don't let operators run one-shot scripts (Pterodactyl, etc.) just work.
+  // Set to "0" or "false" to suppress.
+  AUTO_REGISTER_COMMANDS: z
+    .preprocess((v) => v === "0" || v === "false" ? false : true, z.boolean())
+    .default(true)
 });
 
 const parsed = envSchema.safeParse(process.env);
