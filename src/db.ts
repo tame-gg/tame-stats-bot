@@ -36,6 +36,12 @@ export const db = new Database(dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA foreign_keys = ON;");
 
+// Run migrations *before* the prepared statements below — `db.query()`
+// validates SQL against the live schema at prepare time, so a fresh
+// install (no tables yet) crashes if we wait for index.ts to call us.
+// Idempotent thanks to `CREATE TABLE IF NOT EXISTS`.
+migrate();
+
 export function migrate(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS watches (
