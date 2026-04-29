@@ -84,3 +84,22 @@ External Emojis, Read Message History, Use Slash Commands.
 | `GET /api/bot/search?q=&limit=`    | bot bearer  | Tracked-roster prefix search         |
 | `GET /{ign}/opengraph-image`       | public      | OG image used in `/stats` embeds     |
 | `GET /api/og/compare?igns=a,b`     | public      | OG image used in `/compare` embeds   |
+
+## Slash commands
+
+| Command                              | What it shows                                              |
+| ------------------------------------ | ---------------------------------------------------------- |
+| `/stats <ign>`                       | Headline (Bedwars-flavoured) embed + OG card               |
+| `/hypixel <ign>`                     | Network overview — rank, level, games-tracked count        |
+| `/bedwars <ign>`                     | Bedwars detail (FKDR, WLR, ★, finals, wins, beds)          |
+| `/skywars <ign>`                     | Skywars detail (KDR, WLR, kills, wins, ★)                  |
+| `/duels <ign>`                       | Duels detail (KDR, WLR, current/best winstreak, wins)      |
+| `/murdermystery <ign>`               | Murder Mystery detail (kills, games, role wins)            |
+| `/buildbattle <ign>`                 | Build Battle detail (games, correct guesses, votes)        |
+| `/compare <ign1> <ign2> [ign3] [ign4]` | OG compare image + per-player Bedwars FKDR row           |
+| `/watch <ign>`                       | Add to your watchlist (DM/channel alert when they log on)  |
+| `/unwatch <ign>`                     | Remove from your watchlist                                 |
+| `/watchlist`                         | Your watched players + current online state (ephemeral)    |
+| `/link <ign>`                        | Link your Discord account to an IGN                        |
+| `/unlink`                            | Clear your link                                            |
+| `/leaderboard [game] [metric]`       | Rank linked Discord users in this server                   |
