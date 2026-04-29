@@ -82,6 +82,10 @@ External Emojis, Read Message History, Use Slash Commands.
 | `GET /api/bot/resolve/{ign}`       | bot bearer  | Mojang IGN → UUID                    |
 | `GET /api/bot/session/{uuid}`      | bot bearer  | Hypixel `/v2/status` (cached 30s)    |
 | `GET /api/bot/search?q=&limit=`    | bot bearer  | Tracked-roster prefix search         |
+| `GET /api/bot/leaderboard?limit=`  | bot bearer  | Top-N Bedwars leaderboard preview    |
+| `GET /api/bot/recent?limit=`       | bot bearer  | Most-recently-added tracked players  |
+| `GET /api/bot/guild?name=`         | bot bearer  | Hypixel guild summary (no members)   |
+| `GET /api/hypixel-status`          | public      | Hypixel network status (used by /serverstatus) |
 | `GET /{ign}/opengraph-image`       | public      | OG image used in `/stats` embeds     |
 | `GET /api/og/compare?igns=a,b`     | public      | OG image used in `/compare` embeds   |
 
@@ -97,6 +101,11 @@ External Emojis, Read Message History, Use Slash Commands.
 | `/murdermystery <ign>`               | Murder Mystery detail (kills, games, role wins)            |
 | `/buildbattle <ign>`                 | Build Battle detail (games, correct guesses, votes)        |
 | `/compare <ign1> <ign2> [ign3] [ign4]` | OG compare image + per-player Bedwars FKDR row           |
+| `/live <ign>`                        | Current Hypixel session + button to the live tracker page  |
+| `/guild <name>`                      | Hypixel guild lookup (members, exp, created, preferred)    |
+| `/topplayers [limit]`                | Global Bedwars star leaderboard (tracked roster)           |
+| `/recent [limit]`                    | Most recently tracked players                              |
+| `/serverstatus`                      | Hypixel network status (player count, version)             |
 | `/watch <ign>`                       | Add to your watchlist (DM/channel alert when they log on)  |
 | `/unwatch <ign>`                     | Remove from your watchlist                                 |
 | `/watchlist`                         | Your watched players + current online state (ephemeral)    |

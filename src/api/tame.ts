@@ -49,6 +49,44 @@ export type ResolvedPlayer = {
   ign: string;
 };
 
+export type LeaderboardRow = {
+  uuid: string;
+  ign: string;
+  rank: HypixelRank;
+  level: number;
+  star: number;
+  wins: number;
+  fkdr: number | null;
+};
+
+export type RecentlyTrackedPlayer = {
+  uuid: string;
+  ign: string;
+  /** Unix seconds. */
+  addedAt: number;
+};
+
+export type GuildSummary = {
+  id: string;
+  name: string;
+  tag: string | null;
+  tagColor: string | null;
+  description: string | null;
+  /** Unix seconds. */
+  createdAt: number | null;
+  exp: number;
+  memberCount: number;
+  preferredGames: string[];
+};
+
+export type HypixelNetworkStatus = {
+  online: boolean;
+  players: number | null;
+  max: number | null;
+  version: string | null;
+  fetchedAt: number;
+};
+
 const baseUrl = env.TAME_API_BASE.replace(/\/+$/, "");
 
 export class TameApiError extends Error {
@@ -207,6 +245,65 @@ export const tame = {
       log.debug({ err, q: query }, "tame.search degraded");
       return [];
     }
+  },
+
+  /**
+   * Top-N global Bedwars leaderboard preview, ranked by star.
+   */
+  async leaderboard(limit = 10): Promise<LeaderboardRow[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return requestJson<LeaderboardRow[]>(`/api/bot/leaderboard?${params.toString()}`, {
+      withBotAuth: true,
+    });
+  },
+
+  /**
+   * Most-recently-added players in the tracked roster. Used by /recent.
+   */
+  async recent(limit = 10): Promise<RecentlyTrackedPlayer[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return requestJson<RecentlyTrackedPlayer[]>(`/api/bot/recent?${params.toString()}`, {
+      withBotAuth: true,
+    });
+  },
+
+  /**
+   * Guild lookup by name. Returns null when the guild doesn't exist (404).
+   */
+  async guild(name: string): Promise<GuildSummary | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const params = new URLSearchParams({ name: trimmed });
+    try {
+      return await requestJson<GuildSummary>(`/api/bot/guild?${params.toString()}`, {
+        withBotAuth: true,
+      });
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  },
+
+  /**
+   * Hypixel network status (player count, version) — public endpoint, no auth.
+   */
+  async hypixelStatus(): Promise<HypixelNetworkStatus | null> {
+    try {
+      return await requestJson<HypixelNetworkStatus>(`/api/hypixel-status`, {
+        withBotAuth: false,
+      });
+    } catch (err) {
+      if (err instanceof TameApiError) {
+        log.debug({ kind: err.kind }, "tame.hypixelStatus degraded");
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  /** Build a URL on the configured stats.tame.gg base. `path` should start with `/`. */
+  siteUrl(path: string): string {
+    return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
   },
 
   ogPlayer(ign: string): string {

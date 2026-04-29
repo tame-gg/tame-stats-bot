@@ -1,9 +1,14 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from "discord.js";
 import { compareCommand } from "./compare.ts";
 import { gameCommands, hypixelCommand } from "./games.ts";
+import { guildCommand } from "./guild.ts";
 import { leaderboardCommand } from "./leaderboard.ts";
 import { linkCommand } from "./link.ts";
+import { liveCommand } from "./live.ts";
+import { recentCommand } from "./recent.ts";
+import { serverStatusCommand } from "./serverstatus.ts";
 import { statsCommand } from "./stats.ts";
+import { topPlayersCommand } from "./topplayers.ts";
 import { unlinkCommand } from "./unlink.ts";
 import { unwatchCommand } from "./unwatch.ts";
 import { watchCommand } from "./watch.ts";
@@ -15,6 +20,11 @@ export const commands: BotCommand[] = [
   hypixelCommand,
   ...gameCommands,
   compareCommand,
+  liveCommand,
+  guildCommand,
+  topPlayersCommand,
+  recentCommand,
+  serverStatusCommand,
   watchCommand,
   unwatchCommand,
   watchlistCommand,
