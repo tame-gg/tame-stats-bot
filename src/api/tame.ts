@@ -258,6 +258,27 @@ export const tame = {
   },
 
   /**
+   * Returns whatever Discord handle the player has set on their Hypixel
+   * profile via in-game `/socials`. Used by the bot's /link verification
+   * flow — never exposes the full social blob.
+   */
+  async socials(
+    ign: string,
+  ): Promise<{ uuid: string; ign: string; discord: string | null } | null> {
+    const trimmed = ign.trim();
+    if (!trimmed) return null;
+    try {
+      return await requestJson<{ uuid: string; ign: string; discord: string | null }>(
+        `/api/bot/socials/${encodeURIComponent(trimmed)}`,
+        { withBotAuth: true, timeoutMs: 12_000 },
+      );
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  },
+
+  /**
    * Current Hypixel session. The endpoint never returns 404 for an unknown
    * UUID — it returns `{ online: false }` — so a thrown `not_found` here is
    * treated as offline rather than null, to keep poller/embed code simple.

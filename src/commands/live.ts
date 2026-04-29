@@ -7,17 +7,18 @@ import {
 } from "discord.js";
 import { tame } from "../api/tame.ts";
 import { compactSession } from "../util.ts";
+import { resolveCommandTarget } from "./target.ts";
 import type { BotCommand } from "./types.ts";
 
 export const liveCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("live")
-    .setDescription("Show a player's current Hypixel session + a link to their live tracker.")
+    .setDescription("Show a player's current Hypixel session. Defaults to your linked account.")
     .addStringOption((option) =>
       option
         .setName("ign")
-        .setDescription("Minecraft username")
-        .setRequired(true)
+        .setDescription("Minecraft username (defaults to your linked account)")
+        .setRequired(false)
         .setAutocomplete(true),
     ),
   json: {} as never,
@@ -28,12 +29,12 @@ export const liveCommand: BotCommand = {
   },
   async execute(interaction) {
     await interaction.deferReply();
-    const ign = interaction.options.getString("ign", true);
-    const resolved = await tame.resolve(ign);
-    if (!resolved) {
-      await interaction.editReply(`Couldn't find **${ign}** on Mojang.`);
+    const target = await resolveCommandTarget(interaction);
+    if (target.kind === "error") {
+      await interaction.editReply(target.message);
       return;
     }
+    const resolved = target.player;
 
     const session = await tame.session(resolved.uuid);
     const dot = session.online ? "🟢" : "⚫";

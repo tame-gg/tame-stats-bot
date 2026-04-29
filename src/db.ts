@@ -96,6 +96,9 @@ const upsertLinkQuery = db.query(`
     linked_at = excluded.linked_at
 `);
 const deleteLinkQuery = db.query("DELETE FROM links WHERE discord_user_id = ?");
+const getLinkForUserQuery = db.query(
+  "SELECT discord_user_id, uuid, ign, guild_id, linked_at FROM links WHERE discord_user_id = ? LIMIT 1"
+);
 const getLinksForGuildQuery = db.query(
   "SELECT discord_user_id, uuid, ign, guild_id, linked_at FROM links WHERE guild_id = ? OR guild_id IS NULL"
 );
@@ -140,6 +143,10 @@ export function upsertLink(discordUserId: string, uuid: string, ign: string, gui
 
 export function deleteLink(discordUserId: string): boolean {
   return deleteLinkQuery.run(discordUserId).changes > 0;
+}
+
+export function getLinkForUser(discordUserId: string): LinkRow | null {
+  return (getLinkForUserQuery.get(discordUserId) as LinkRow | null) ?? null;
 }
 
 export function getLinksForGuild(guildId: string): LinkRow[] {

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
 import { buildGameEmbed, buildHypixelOverviewEmbed } from "../embeds/game.ts";
+import { resolveCommandTarget } from "./target.ts";
 import type { BotCommand } from "./types.ts";
 
 type GameSpec = {
@@ -35,12 +36,12 @@ const GAMES: GameSpec[] = [
 function makeGameCommand(spec: GameSpec): BotCommand {
   const data = new SlashCommandBuilder()
     .setName(spec.command)
-    .setDescription(spec.description)
+    .setDescription(`${spec.description} Defaults to your linked account.`)
     .addStringOption((option) =>
       option
         .setName("ign")
-        .setDescription("Minecraft username")
-        .setRequired(true)
+        .setDescription("Minecraft username (defaults to your linked account)")
+        .setRequired(false)
         .setAutocomplete(true),
     );
 
@@ -54,12 +55,12 @@ function makeGameCommand(spec: GameSpec): BotCommand {
     },
     async execute(interaction) {
       await interaction.deferReply();
-      const ign = interaction.options.getString("ign", true);
-      const resolved = await tame.resolve(ign);
-      if (!resolved) {
-        await interaction.editReply(`Couldn't find **${ign}** on Mojang.`);
+      const target = await resolveCommandTarget(interaction);
+      if (target.kind === "error") {
+        await interaction.editReply(target.message);
         return;
       }
+      const resolved = target.player;
 
       const [preview, session] = await Promise.all([
         tame.previewOrTrack(resolved),
@@ -90,12 +91,12 @@ export const gameCommands: BotCommand[] = GAMES.map(makeGameCommand);
 // factory.
 const hypixelData = new SlashCommandBuilder()
   .setName("hypixel")
-  .setDescription("Show a player's Hypixel network overview (rank, level, modes tracked).")
+  .setDescription("Show a player's Hypixel network overview. Defaults to your linked account.")
   .addStringOption((option) =>
     option
       .setName("ign")
-      .setDescription("Minecraft username")
-      .setRequired(true)
+      .setDescription("Minecraft username (defaults to your linked account)")
+      .setRequired(false)
       .setAutocomplete(true),
   );
 
@@ -109,20 +110,20 @@ export const hypixelCommand: BotCommand = {
   },
   async execute(interaction) {
     await interaction.deferReply();
-    const ign = interaction.options.getString("ign", true);
-    const resolved = await tame.resolve(ign);
-    if (!resolved) {
-      await interaction.editReply(`Couldn't find **${ign}** on Mojang.`);
+    const target = await resolveCommandTarget(interaction);
+    if (target.kind === "error") {
+      await interaction.editReply(target.message);
       return;
     }
+    const resolved = target.player;
 
     const [preview, session] = await Promise.all([
-      tame.preview(resolved.uuid),
+      tame.previewOrTrack(resolved),
       tame.session(resolved.uuid).catch(() => ({ online: false }) as const),
     ]);
     if (!preview) {
       await interaction.editReply(
-        `**${resolved.ign}** isn't tracked on stats.tame.gg yet. Visit ${tame.playerUrl(resolved.ign)} to start tracking.`,
+        `Couldn't track **${resolved.ign}** — Hypixel might be down or they have their API turned off.`,
       );
       return;
     }
