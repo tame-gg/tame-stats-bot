@@ -1,5 +1,10 @@
-import { SlashCommandBuilder } from "discord.js";
-import { tame } from "../api/tame.ts";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+} from "discord.js";
+import { tame, type BedwarsMode } from "../api/tame.ts";
 import { buildGameEmbed, buildHypixelOverviewEmbed } from "../embeds/game.ts";
 import { resolveCommandTarget } from "./target.ts";
 import type { BotCommand } from "./types.ts";
@@ -32,6 +37,53 @@ const GAMES: GameSpec[] = [
     gameLabel: "Build Battle",
   },
 ];
+
+/**
+ * /bedwars mode-selector layout. Discord's ActionRow caps at 5 buttons,
+ * so we split the 6 modes across two rows. Order matches the design
+ * canvas — Overall first (default landing state), then Solo/Doubles in
+ * the same row to keep the most-played core modes one click away.
+ */
+const BEDWARS_MODE_BUTTONS: ReadonlyArray<readonly BedwarsMode[]> = [
+  ["overall", "solo", "doubles"],
+  ["trios", "fours", "dreams"],
+];
+
+const BEDWARS_BUTTON_LABELS: Record<BedwarsMode, string> = {
+  overall: "Overall",
+  solo: "Solo",
+  doubles: "Doubles",
+  trios: "Trios",
+  fours: "Fours",
+  dreams: "Dreams",
+};
+
+/**
+ * Build the two action rows for /bedwars. Pressed mode renders as Primary
+ * (gold-accent in Discord's palette); the rest are Secondary.
+ *
+ * `customId` shape: `bw:mode:<uuid>:<mode>`. Includes the player's UUID so
+ * the dispatcher can re-fetch the preview without round-tripping back to
+ * the slash interaction. UUIDs are immutable; ign-renames don't break the
+ * button until the message is re-rendered.
+ */
+export function buildBedwarsModeRows(
+  uuid: string,
+  pressed: BedwarsMode,
+): ActionRowBuilder<ButtonBuilder>[] {
+  return BEDWARS_MODE_BUTTONS.map((modes) => {
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    for (const mode of modes) {
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bw:mode:${uuid}:${mode}`)
+          .setLabel(BEDWARS_BUTTON_LABELS[mode])
+          .setStyle(mode === pressed ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      );
+    }
+    return row;
+  });
+}
 
 function makeGameCommand(spec: GameSpec): BotCommand {
   const data = new SlashCommandBuilder()
@@ -73,11 +125,24 @@ function makeGameCommand(spec: GameSpec): BotCommand {
         return;
       }
 
-      await interaction.editReply({
-        embeds: [
-          buildGameEmbed({ ...preview, ign: resolved.ign }, spec.gameId, spec.gameLabel, session),
-        ],
-      });
+      const embed = buildGameEmbed(
+        { ...preview, ign: resolved.ign },
+        spec.gameId,
+        spec.gameLabel,
+        session,
+      );
+
+      // /bedwars ships with the mode-selector button rows under the embed;
+      // Discord caps 5 buttons per row, so the 6 modes split across two.
+      // Other game commands ship no buttons — they're stat-fixed.
+      if (spec.gameId === "bedwars") {
+        await interaction.editReply({
+          embeds: [embed],
+          components: buildBedwarsModeRows(preview.uuid, "overall"),
+        });
+      } else {
+        await interaction.editReply({ embeds: [embed] });
+      }
     },
   };
   cmd.json = data.toJSON();

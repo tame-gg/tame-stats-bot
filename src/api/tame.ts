@@ -21,11 +21,25 @@ export type PreviewMetric = {
   value: number | null;
 };
 
+/**
+ * Canonical Bedwars mode ids surfaced by the website preview API. The
+ * `overall` slot doesn't appear in `PreviewGame.modes` — it's the top-level
+ * `metrics` array — but it's a convenient member of the union for the
+ * /bedwars mode-selector to dispatch on.
+ */
+export type BedwarsMode = "overall" | "solo" | "doubles" | "trios" | "fours" | "dreams";
+
 export type PreviewGame = {
   id: string;
   label: string;
   hasPlayed: boolean;
   metrics: PreviewMetric[];
+  /**
+   * Per-mode metric arrays keyed by canonical mode id. Same shape and order
+   * as `metrics`. Currently only `bedwars` populates this. An empty array
+   * (`metrics: []`) means the player has zero games in that mode.
+   */
+  modes?: Record<string, PreviewMetric[]>;
 };
 
 export type PlayerPreview = {

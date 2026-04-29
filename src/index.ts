@@ -6,6 +6,7 @@ import { migrate } from "./db.ts";
 import { registerSlashCommands } from "./deploy-commands.ts";
 import { env } from "./env.ts";
 import { startHealthServer, stopHealthServer } from "./health.ts";
+import { dispatchButton } from "./interactions/buttons.ts";
 import { log } from "./log.ts";
 import { startPoller, stopPoller, waitForInflightTick } from "./poller/index.ts";
 
@@ -68,6 +69,46 @@ client.on("interactionCreate", (interaction) => {
         const message = humanizeCommandError(err);
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply({ content: message }).catch(() => null);
+        } else {
+          await interaction
+            .reply({ content: message, flags: MessageFlags.Ephemeral })
+            .catch(() => null);
+        }
+      });
+    return;
+  }
+
+  if (interaction.isButton()) {
+    const startedAt = performance.now();
+    void dispatchButton(interaction)
+      .then(() => {
+        log.info(
+          {
+            customId: interaction.customId,
+            userId: interaction.user.id,
+            guildId: interaction.guildId,
+            durationMs: Math.round(performance.now() - startedAt),
+          },
+          "button ok",
+        );
+      })
+      .catch(async (err) => {
+        log.error(
+          {
+            err,
+            customId: interaction.customId,
+            userId: interaction.user.id,
+            guildId: interaction.guildId,
+            durationMs: Math.round(performance.now() - startedAt),
+          },
+          "button failed",
+        );
+        const message = humanizeCommandError(err);
+        // Buttons may be deferred (most are) or untouched (early-rejected
+        // before we touched them). Mirror the slash-command branch's
+        // edit-vs-reply choice on the same `deferred || replied` flag.
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => null);
         } else {
           await interaction
             .reply({ content: message, flags: MessageFlags.Ephemeral })

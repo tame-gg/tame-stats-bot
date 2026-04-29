@@ -79,12 +79,17 @@ export function themeAuthor(section: string): { name: string; iconURL: string; u
 }
 
 /**
- * 64×64 player avatar URL via mc-heads.net, used as `setThumbnail()` on the
- * per-game embeds. UUID is preferred (canonical, doesn't break on rename) but
- * IGN works too — the service falls back automatically.
+ * 96px 3D iso-head URL via mc-heads.net, used as `setThumbnail()` on the
+ * per-game embeds. UUID is preferred (canonical, doesn't break on rename)
+ * but IGN works too — the service falls back automatically.
+ *
+ * `/head/<id>/96` instead of `/avatar/<id>/64`: the avatar endpoint
+ * returned a tiny black-square placeholder in production for several
+ * weeks (verified 4xx behaviour at the size 64), the head endpoint
+ * returns a real 96×102 PNG.
  */
-export function avatarUrl(uuid: string): string {
-  return `https://mc-heads.net/avatar/${encodeURIComponent(uuid)}/64`;
+export function headUrl(uuid: string): string {
+  return `https://mc-heads.net/head/${encodeURIComponent(uuid)}/96`;
 }
 
 /**
