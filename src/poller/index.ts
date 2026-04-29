@@ -322,6 +322,27 @@ export function stopPoller(): void {
 }
 
 /**
+ * Eagerly seed `lastKnown` for a UUID by fetching its current Hypixel
+ * session right now. Without this, /watch only baselines on the next
+ * scheduled tick (~60s lag), and the first online-edge after baseline
+ * needs *another* tick after that — total ~2 minutes from /watch to
+ * first alert. With this, baseline is instant and the very next tick
+ * can fire.
+ *
+ * Errors are swallowed — the regular tick will retry the fetch.
+ */
+export async function seedWatchedPlayer(uuid: string): Promise<HypixelSession | null> {
+  try {
+    const session = await tame.session(uuid);
+    pollerState.lastKnown.set(uuid, session);
+    return session;
+  } catch (err) {
+    log.debug({ err, uuid }, "seedWatchedPlayer failed (will retry on next tick)");
+    return null;
+  }
+}
+
+/**
  * Resolves once the currently running tick (if any) has finished, or after
  * `timeoutMs` — whichever is first. Used by graceful shutdown so the bot
  * doesn't kill itself mid-DM-send.
