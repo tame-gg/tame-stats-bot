@@ -72,6 +72,23 @@ export const linkCommand: BotCommand = {
     }
 
     upsertLink(interaction.user.id, socials.uuid, socials.ign, interaction.guildId);
+
+    // Best-effort mirror to the website so admin/profile pages can show
+    // the link. Local upsert above is the source of truth — if this push
+    // fails, the user is still linked locally and /leaderboard etc. work.
+    try {
+      await tame.pushDiscordLink({
+        discordUserId: interaction.user.id,
+        discordUsername: interaction.user.username,
+        uuid: socials.uuid,
+        ign: socials.ign,
+        guildId: interaction.guildId,
+        linkedAt: Math.floor(Date.now() / 1000),
+      });
+    } catch (err) {
+      log.warn({ err, userId: interaction.user.id }, "discord-link mirror push failed");
+    }
+
     await interaction.editReply(
       `Linked you to **${socials.ign}** ✓ (verified via Hypixel /socials)`,
     );

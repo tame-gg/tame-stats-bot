@@ -258,6 +258,65 @@ export const tame = {
   },
 
   /**
+   * Mirror a successful /link to stats.tame.gg's `discord_links` table so
+   * the website can render the Discord chip on the player profile and the
+   * admin panel sees the latest roster. Best-effort — failures should log
+   * but not block the local upsert (bot SQLite is the source of truth).
+   */
+  async pushDiscordLink(payload: {
+    discordUserId: string;
+    discordUsername: string;
+    uuid: string;
+    ign: string;
+    guildId: string | null;
+    /** Unix seconds. */
+    linkedAt: number;
+  }): Promise<void> {
+    const url = `${baseUrl}/api/bot/discord-link`;
+    const startedAt = performance.now();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.TAME_BOT_TOKEN}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const ms = Math.round(performance.now() - startedAt);
+    log.info({ method: "POST", url: "/api/bot/discord-link", status: res.status, ms }, "tame api call");
+    if (!res.ok) {
+      throw new TameApiError(
+        res.status === 401 ? "unauthorized" : res.status >= 500 ? "server" : "client",
+        `HTTP ${res.status} from /api/bot/discord-link`,
+        res.status,
+      );
+    }
+  },
+
+  async removeDiscordLink(discordUserId: string): Promise<void> {
+    const url = `${baseUrl}/api/bot/discord-link/${encodeURIComponent(discordUserId)}`;
+    const startedAt = performance.now();
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${env.TAME_BOT_TOKEN}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    const ms = Math.round(performance.now() - startedAt);
+    log.info(
+      { method: "DELETE", url: `/api/bot/discord-link/${discordUserId}`, status: res.status, ms },
+      "tame api call",
+    );
+    if (!res.ok) {
+      throw new TameApiError(
+        res.status === 401 ? "unauthorized" : res.status >= 500 ? "server" : "client",
+        `HTTP ${res.status} from /api/bot/discord-link/${discordUserId}`,
+        res.status,
+      );
+    }
+  },
+
+  /**
    * Returns whatever Discord handle the player has set on their Hypixel
    * profile via in-game `/socials`. Used by the bot's /link verification
    * flow — never exposes the full social blob.
