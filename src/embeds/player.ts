@@ -25,7 +25,7 @@ function metricStr(metric: PreviewMetric | null): string {
  *   - one mono "FKDR · WLR" row for screen-readers / clients that don't
  *     render the OG image inline
  *   - the OG card itself via setImage()
- *   - footer `stats.tame.gg/<ign>` + favicon
+ *   - footer `tame.gg/stats/<ign>` + favicon
  */
 export function buildPlayerEmbed(preview: PlayerPreview, session: HypixelSession | null): EmbedBuilder {
   const ign = preview.ign;

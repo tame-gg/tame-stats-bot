@@ -54,13 +54,13 @@ export function rankSidebar(rankKey: string | undefined, fallback = THEME.accent
 }
 
 /**
- * Standard footer applied to every embed: `stats.tame.gg/<ign>` + favicon.
+ * Standard footer applied to every embed: `tame.gg/stats/<ign>` + favicon.
  * Pass `null` to omit the trailing slug (e.g. for /serverstatus, /leaderboard
  * where there's no per-player URL).
  */
 export function themeFooter(slug: string | null): { text: string; iconURL: string } {
   return {
-    text: slug ? `stats.tame.gg/${slug}` : "stats.tame.gg",
+    text: slug ? `tame.gg/stats/${slug}` : "tame.gg/stats",
     iconURL: tame.faviconUrl(),
   };
 }
