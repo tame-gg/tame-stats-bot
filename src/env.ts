@@ -4,7 +4,7 @@ const envSchema = z.object({
   DISCORD_TOKEN: z.string().min(1),
   DISCORD_APP_ID: z.string().min(1),
   DISCORD_DEV_GUILD_ID: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional()),
-  TAME_API_BASE: z.string().url().default("https://tame.gg/stats"),
+  TAME_API_BASE: z.string().url().default("https://www.tame.gg/stats"),
   TAME_BOT_TOKEN: z.string().min(1),
   DATABASE_PATH: z.string().min(1).default("./data/bot.db"),
   LOG_LEVEL: z
