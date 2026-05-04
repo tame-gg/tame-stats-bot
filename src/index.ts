@@ -130,10 +130,10 @@ function humanizeCommandError(err: unknown): string {
       return err.message;
     }
     if (err.kind === "timeout" || err.kind === "network") {
-      return "stats.tame.gg looks unreachable right now. Try again in a moment.";
+      return "tame.gg/api looks unreachable right now. Try again in a moment.";
     }
     if (err.kind === "server") {
-      return "stats.tame.gg returned an error. Try again in a moment.";
+      return "tame.gg/api returned an error. Try again in a moment.";
     }
   }
   return "Something went wrong while running that command.";

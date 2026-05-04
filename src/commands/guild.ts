@@ -101,7 +101,7 @@ export const guildCommand: BotCommand = {
         { name: "Guild XP", value: formatNumber(guild.exp, 0), inline: true },
         { name: "Created", value: formatCreatedAt(guild.createdAt), inline: true },
       )
-      .setFooter({ text: `stats.tame.gg/guild/${guild.name}`, iconURL: tame.faviconUrl() });
+      .setFooter({ text: `tame.gg/stats/guild/${guild.name}`, iconURL: tame.faviconUrl() });
 
     if (guild.description) {
       embed.setDescription(guild.description.slice(0, 500));

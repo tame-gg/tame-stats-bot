@@ -82,7 +82,7 @@ export type RecentlyTrackedPlayer = {
 
 export type GuildMember = {
   uuid: string;
-  /** Populated when the member is in stats.tame.gg's tracked roster, else null. */
+  /** Populated when the member is in tame.gg/stats' tracked roster, else null. */
   ign: string | null;
   rank: string | null;
   /** Unix seconds. */
@@ -99,7 +99,7 @@ export type GuildSummary = {
   createdAt: number | null;
   exp: number;
   memberCount: number;
-  /** How many members are tracked on stats.tame.gg. */
+  /** How many members are tracked on tame.gg/stats. */
   trackedCount: number;
   preferredGames: string[];
   members: GuildMember[];
@@ -113,7 +113,8 @@ export type HypixelNetworkStatus = {
   fetchedAt: number;
 };
 
-const baseUrl = env.TAME_API_BASE.replace(/\/+$/, "");
+const statsBaseUrl = env.TAME_API_BASE.replace(/\/+$/, "");
+const apiBaseUrl = statsBaseUrl.replace(/\/stats$/, "");
 
 export class TameApiError extends Error {
   constructor(
@@ -143,13 +144,13 @@ type RequestOpts = {
 };
 
 /**
- * Fetch a JSON endpoint on stats.tame.gg with a single 5xx retry, structured
+ * Fetch a JSON endpoint on tame.gg/api with a single 5xx retry, structured
  * timing logs, and a typed error surface so callers can distinguish "this
  * player just doesn't exist" (404) from "the bot is misconfigured" (401)
- * from "stats.tame.gg is having a moment" (5xx / network).
+ * from "tame.gg/api is having a moment" (5xx / network).
  */
 async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
-  const url = `${baseUrl}${path}`;
+  const url = `${apiBaseUrl}${path}`;
   const timeoutMs = opts.timeoutMs ?? 10_000;
   let lastError: unknown = null;
 
@@ -292,7 +293,7 @@ export const tame = {
   },
 
   /**
-   * Mirror a successful /link to stats.tame.gg's `discord_links` table so
+   * Mirror a successful /link to tame.gg/api's `discord_links` table so
    * the website can render the Discord chip on the player profile and the
    * admin panel sees the latest roster. Best-effort — failures should log
    * but not block the local upsert (bot SQLite is the source of truth).
@@ -306,7 +307,7 @@ export const tame = {
     /** Unix seconds. */
     linkedAt: number;
   }): Promise<void> {
-    const url = `${baseUrl}/api/bot/discord-link`;
+    const url = `${apiBaseUrl}/api/bot/discord-link`;
     const startedAt = performance.now();
     const res = await fetch(url, {
       method: "POST",
@@ -329,7 +330,7 @@ export const tame = {
   },
 
   async removeDiscordLink(discordUserId: string): Promise<void> {
-    const url = `${baseUrl}/api/bot/discord-link/${encodeURIComponent(discordUserId)}`;
+    const url = `${apiBaseUrl}/api/bot/discord-link/${encodeURIComponent(discordUserId)}`;
     const startedAt = performance.now();
     const res = await fetch(url, {
       method: "DELETE",
@@ -470,33 +471,33 @@ export const tame = {
     }
   },
 
-  /** Build a URL on the configured stats.tame.gg base. `path` should start with `/`. */
+  /** Build a URL on the configured tame.gg/stats base. `path` should start with `/`. */
   siteUrl(path: string): string {
-    return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+    return `${statsBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
   },
 
   ogPlayer(ign: string): string {
-    return `${baseUrl}/${encodeURIComponent(ign)}/opengraph-image`;
+    return `${statsBaseUrl}/${encodeURIComponent(ign)}/opengraph-image`;
   },
 
   ogCompare(igns: readonly string[]): string {
     const params = new URLSearchParams({ igns: igns.join(",") });
-    return `${baseUrl}/api/og/compare?${params.toString()}`;
+    return `${apiBaseUrl}/api/og/compare?${params.toString()}`;
   },
 
   playerUrl(ign: string): string {
-    return `${baseUrl}/${encodeURIComponent(ign)}`;
+    return `${statsBaseUrl}/${encodeURIComponent(ign)}`;
   },
 
   liveUrl(ign: string): string {
-    return `${baseUrl}/${encodeURIComponent(ign)}/live`;
+    return `${statsBaseUrl}/${encodeURIComponent(ign)}/live`;
   },
 
   compareUrl(igns: readonly string[]): string {
-    return `${baseUrl}/compare/${igns.map((ign) => encodeURIComponent(ign)).join("/")}/`;
+    return `${statsBaseUrl}/compare/${igns.map((ign) => encodeURIComponent(ign)).join("/")}/`;
   },
 
   faviconUrl(): string {
-    return `${baseUrl}/icon`;
+    return `${apiBaseUrl}/icon`;
   },
 };

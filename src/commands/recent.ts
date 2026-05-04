@@ -14,7 +14,7 @@ function relativeAge(addedAtSec: number): string {
 export const recentCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("recent")
-    .setDescription("Show the most recently tracked players on stats.tame.gg.")
+    .setDescription("Show the most recently tracked players on tame.gg/stats.")
     .addIntegerOption((option) =>
       option.setName("limit").setDescription("How many players (1–25, default 10)").setMinValue(1).setMaxValue(25),
     ),

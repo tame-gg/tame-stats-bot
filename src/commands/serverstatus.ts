@@ -14,7 +14,7 @@ export const serverStatusCommand: BotCommand = {
     const status = await tame.hypixelStatus();
 
     if (!status) {
-      await interaction.editReply("stats.tame.gg's status feed is unavailable right now.");
+      await interaction.editReply("tame.gg/api's status feed is unavailable right now.");
       return;
     }
 

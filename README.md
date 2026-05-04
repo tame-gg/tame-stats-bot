@@ -1,6 +1,6 @@
 # tame-stats-bot
 
-Bun + discord.js companion for [stats.tame.gg](https://stats.tame.gg). Slash
+Bun + discord.js companion for [tame.gg/stats](https://tame.gg/stats). Slash
 commands hit the `/api/preview/*` and `/api/bot/*` endpoints on the main app;
 a poller wakes once a minute and DMs watchers when their tracked players
 come online.
@@ -13,7 +13,7 @@ come online.
    ```
 2. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`, `DISCORD_APP_ID`,
    and `TAME_BOT_TOKEN`. The token must match the `TAME_BOT_TOKEN` set on
-   stats.tame.gg — generate with `openssl rand -base64 48`.
+   tame.gg — generate with `openssl rand -base64 48`.
 3. Register slash commands (one-shot, run after every command schema change):
    ```sh
    bun run register
@@ -74,7 +74,8 @@ External Emojis, Read Message History, Use Slash Commands.
 
 ## API notes
 
-`TAME_API_BASE` defaults to `https://stats.tame.gg`. Routes:
+`TAME_API_BASE` defaults to `https://tame.gg/stats`. API routes are called on
+the same origin at `https://tame.gg/api/...`. Routes:
 
 | Endpoint                           | Auth        | Purpose                              |
 | ---------------------------------- | ----------- | ------------------------------------ |
