@@ -1,32 +1,77 @@
-import { createCanvas, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
-import type { BedwarsMode, PlayerPreview, PreviewMetric } from "../api/tame.ts";
+import { createCanvas, GlobalFonts, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
+import { fileURLToPath } from "node:url";
+import type { BedwarsMode, PlayerPreview, PreviewMetric, RankSegment } from "../api/tame.ts";
 import { formatNumber } from "../util.ts";
 
-const W = 1000;
-const H = 560;
+/**
+ * Brand fonts mirrored from tame.gg's OG cards (`lib/og-fonts.ts`): Instrument
+ * Serif for headline numbers + IGN, DM Sans for body, Syne for the all-caps
+ * eyebrows/labels. Registered once at module load so the canvas renders the
+ * same refined type the website ships — system-ui fallbacks looked generic and
+ * varied per host. Each TTF is a single weight/style, so we alias them under
+ * distinct family names and reference those directly instead of leaning on the
+ * canvas's (flaky) weight/style matching.
+ */
+const FONT_DIR = fileURLToPath(new URL("../../assets/fonts/", import.meta.url));
+const FONTS: ReadonlyArray<readonly [string, string]> = [
+  ["InstrumentSerif-Regular.ttf", "InstrumentSerif"],
+  ["InstrumentSerif-Italic.ttf", "InstrumentSerifItalic"],
+  ["DMSans-Medium.ttf", "DMSans"],
+  ["DMSans-Bold.ttf", "DMSansBold"],
+  ["Syne-SemiBold.ttf", "Syne"],
+  ["Syne-Bold.ttf", "SyneBold"],
+] as const;
 
-const GRID_TOP = 176;
-const GRID_BOTTOM_PAD = 36;
-const GRID_GAP = 10;
+for (const [file, family] of FONTS) {
+  try {
+    GlobalFonts.registerFromPath(`${FONT_DIR}${file}`, family);
+  } catch {
+    // Best-effort: a missing font falls back to canvas defaults rather than
+    // throwing at import time and taking the whole bot down.
+  }
+}
+
+const SERIF = "InstrumentSerif";
+const SERIF_ITALIC = "InstrumentSerifItalic";
+const SANS = "DMSans";
+const SANS_BOLD = "DMSansBold";
+const DISPLAY = "Syne";
+const DISPLAY_BOLD = "SyneBold";
+
+const W = 1000;
+const H = 660;
+const PAD = 44;
+
+// --- header geometry ---
+const HEAD_X = PAD;
+const HEAD_Y = 74;
+const HEAD_SIZE = 110;
+const CONTENT_X = HEAD_X + HEAD_SIZE + 28;
+const DIVIDER_Y = 202;
+
+// --- grid geometry ---
+const GRID_TOP = 228;
+const GRID_BOTTOM = H - 72;
+const GRID_GAP = 14;
 const GRID_ROWS = 4;
 const GRID_COLS = 3;
-const GRID_PAD_X = 40;
+const CELL_PAD = 18;
+const LABEL_BASELINE = 30;
+const VALUE_BOTTOM_PAD = 16;
+const VALUE_FONT_MAX = 42;
+const VALUE_FONT_MIN = 22;
 
-const CELL_PAD_X = 14;
-const CELL_PAD_Y = 12;
-const LABEL_FONT_SIZE = 11;
-const LABEL_VALUE_GAP = 8;
-const VALUE_FONT_MAX = 36;
-const VALUE_FONT_MIN = 20;
-
-const BG = "#0A0A0A";
-const PANEL = "rgba(255,255,255,0.04)";
-const PANEL_BORDER = "rgba(255,255,255,0.10)";
+// --- palette (tame.gg dark theme tokens) ---
 const TEXT = "#F2F2F2";
-const MUTED = "rgba(242,242,242,0.55)";
+const TEXT_DIM = "rgba(242,242,242,0.62)";
+const TEXT_FAINT = "rgba(242,242,242,0.40)";
+const LINE = "rgba(255,255,255,0.08)";
+const LINE_2 = "rgba(255,255,255,0.14)";
 const ACCENT = "#E8B84A";
-const GREEN = "#6CCB5F";
-const RED = "#E85A5A";
+const ACCENT_SOFT = "rgba(232,184,74,0.12)";
+const ACCENT_BORDER = "rgba(232,184,74,0.40)";
+const GREEN = "#5BD17E";
+const RED = "#E3685F";
 const GOLD = "#E8B84A";
 
 const MODE_LABELS: Record<BedwarsMode, string> = {
@@ -38,7 +83,8 @@ const MODE_LABELS: Record<BedwarsMode, string> = {
   dreams: "Dreams",
 };
 
-type GridCell = { label: string; value: string; tone: "green" | "red" | "gold" | "neutral" };
+type Tone = "green" | "red" | "gold" | "neutral";
+type GridCell = { label: string; value: string; tone: Tone };
 
 const BEDWARS_GRID: ReadonlyArray<readonly [string, string, string]> = [
   ["wins", "losses", "wlr"],
@@ -83,7 +129,7 @@ function pickBedwarsMetrics(
   return { metrics: modeMetrics, hasMode: true };
 }
 
-function cellTone(key: string): GridCell["tone"] {
+function cellTone(key: string): Tone {
   if (key === "wlr" || key === "fkdr" || key === "kdr" || key === "bblr") return "gold";
   if (key === "losses" || key === "finalDeaths" || key === "deaths" || key === "bedsLost") {
     return "red";
@@ -94,7 +140,7 @@ function cellTone(key: string): GridCell["tone"] {
   return "neutral";
 }
 
-function toneColor(tone: GridCell["tone"]): string {
+function toneColor(tone: Tone): string {
   switch (tone) {
     case "green":
       return GREEN;
@@ -115,66 +161,230 @@ function roundRect(
   h: number,
   r: number,
 ): void {
+  const rr = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
   ctx.closePath();
 }
 
-function fitValueFontSize(
+/** Measure a string drawn with manual letter-spacing (for tracked eyebrows). */
+function measureTracked(ctx: SKRSContext2D, text: string, spacing: number): number {
+  let width = 0;
+  for (const ch of text) width += ctx.measureText(ch).width + spacing;
+  return Math.max(0, width - spacing);
+}
+
+/** Draw left-anchored text with manual letter-spacing. Assumes textAlign left. */
+function fillTextTracked(
   ctx: SKRSContext2D,
   text: string,
+  x: number,
+  y: number,
+  spacing: number,
+): void {
+  let cx = x;
+  for (const ch of text) {
+    ctx.fillText(ch, cx, y);
+    cx += ctx.measureText(ch).width + spacing;
+  }
+}
+
+/** Filled 5-point star — bundled fonts don't carry a reliable ★ glyph. */
+function drawStar(
+  ctx: SKRSContext2D,
+  cx: number,
+  cy: number,
+  outer: number,
+  inner: number,
+  color: string,
+): void {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const px = cx + Math.cos(a) * r;
+    const py = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function fitFontSize(
+  ctx: SKRSContext2D,
+  text: string,
+  family: string,
   maxWidth: number,
   maxSize: number,
   minSize: number,
 ): number {
   for (let size = maxSize; size >= minSize; size -= 1) {
-    ctx.font = `700 ${size}px system-ui, Segoe UI, sans-serif`;
+    ctx.font = `${size}px ${family}`;
     if (ctx.measureText(text).width <= maxWidth) return size;
   }
   return minSize;
 }
 
-function drawStatCell(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, cell: GridCell): void {
-  roundRect(ctx, x, y, w, h, 12);
-  ctx.fillStyle = PANEL;
+function drawBackground(ctx: SKRSContext2D): void {
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#141414");
+  bg.addColorStop(0.5, "#0D0D0D");
+  bg.addColorStop(1, "#0A0A0A");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Soft gold glow anchored behind the header — subtle brand warmth.
+  const glow = ctx.createRadialGradient(PAD + 120, 90, 0, PAD + 120, 90, 520);
+  glow.addColorStop(0, "rgba(232,184,74,0.10)");
+  glow.addColorStop(1, "rgba(232,184,74,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, 320);
+}
+
+async function drawHead(ctx: SKRSContext2D, uuid: string): Promise<void> {
+  try {
+    const head = await loadImage(`https://mc-heads.net/head/${encodeURIComponent(uuid)}/180`);
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 6;
+    roundRect(ctx, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE, 16);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    roundRect(ctx, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE, 16);
+    ctx.clip();
+    ctx.drawImage(head, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE);
+    ctx.restore();
+  } catch {
+    roundRect(ctx, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE, 16);
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    ctx.fill();
+  }
+  ctx.strokeStyle = LINE_2;
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE, 16);
+  ctx.stroke();
+}
+
+/** Star badge pill on the right of the header. Returns its left edge x. */
+function drawStarBadge(ctx: SKRSContext2D, star: number | null): number {
+  if (star === null) return W - PAD;
+  const value = formatNumber(star, 0);
+  const cy = HEAD_Y + HEAD_SIZE / 2;
+  const pillH = 58;
+  const iconR = 13;
+
+  ctx.font = `30px ${DISPLAY_BOLD}`;
+  const textW = ctx.measureText(value).width;
+  const padX = 22;
+  const iconGap = 12;
+  const pillW = padX + iconR * 2 + iconGap + textW + padX;
+  const pillX = W - PAD - pillW;
+  const pillY = cy - pillH / 2;
+
+  roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+  ctx.fillStyle = ACCENT_SOFT;
   ctx.fill();
-  ctx.strokeStyle = PANEL_BORDER;
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = ACCENT_BORDER;
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  const innerW = w - CELL_PAD_X * 2;
-  const labelY = y + CELL_PAD_Y;
-  const valueBottom = y + h - CELL_PAD_Y;
-  const valueAreaTop = labelY + LABEL_FONT_SIZE + LABEL_VALUE_GAP;
-  const valueAreaHeight = Math.max(0, valueBottom - valueAreaTop);
+  drawStar(ctx, pillX + padX + iconR, cy, iconR, iconR * 0.46, ACCENT);
 
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  ctx.fillStyle = MUTED;
-  ctx.font = `600 ${LABEL_FONT_SIZE}px system-ui, Segoe UI, sans-serif`;
-  ctx.fillText(cell.label.toUpperCase(), x + w / 2, labelY);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = ACCENT;
+  ctx.font = `30px ${DISPLAY_BOLD}`;
+  ctx.fillText(value, pillX + padX + iconR * 2 + iconGap, cy + 2);
 
-  const maxValueSize = Math.min(VALUE_FONT_MAX, Math.floor(valueAreaHeight));
-  const valueSize = fitValueFontSize(ctx, cell.value, innerW, maxValueSize, VALUE_FONT_MIN);
+  return pillX;
+}
 
-  ctx.textBaseline = "bottom";
+/** Render the colored [rank] tag using the API's per-segment colors. */
+function drawRankTag(
+  ctx: SKRSContext2D,
+  segments: readonly RankSegment[],
+  primaryColor: string,
+  x: number,
+  baseline: number,
+): void {
+  const bracket = primaryColor || ACCENT;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `22px ${SANS_BOLD}`;
+  let cx = x;
+  const draw = (text: string, color: string) => {
+    ctx.fillStyle = color || TEXT;
+    ctx.fillText(text, cx, baseline);
+    cx += ctx.measureText(text).width;
+  };
+  draw("[", bracket);
+  for (const seg of segments) draw(seg.text, seg.color);
+  draw("]", bracket);
+}
+
+function drawStatCell(
+  ctx: SKRSContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  cell: GridCell,
+): void {
+  // Tile surface with a soft drop shadow for depth.
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 14;
+  ctx.shadowOffsetY = 5;
+  const fill = ctx.createLinearGradient(x, y, x, y + h);
+  fill.addColorStop(0, "rgba(255,255,255,0.055)");
+  fill.addColorStop(1, "rgba(255,255,255,0.018)");
+  roundRect(ctx, x, y, w, h, 14);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 1;
+  roundRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+
+  const innerX = x + CELL_PAD;
+  const innerW = w - CELL_PAD * 2;
+
+  // Label — Syne, all-caps, tracked, muted.
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = TEXT_DIM;
+  ctx.font = `12px ${DISPLAY}`;
+  fillTextTracked(ctx, cell.label.toUpperCase(), innerX, y + LABEL_BASELINE, 1.4);
+
+  // Value — Instrument Serif, large, tone-colored.
+  const valueBaseline = y + h - VALUE_BOTTOM_PAD;
+  const size = fitFontSize(ctx, cell.value, SERIF, innerW, VALUE_FONT_MAX, VALUE_FONT_MIN);
   ctx.fillStyle = toneColor(cell.tone);
-  ctx.font = `700 ${valueSize}px system-ui, Segoe UI, sans-serif`;
-  ctx.fillText(cell.value, x + w / 2, valueBottom);
+  ctx.font = `${size}px ${SERIF}`;
+  ctx.fillText(cell.value, innerX, valueBaseline);
 }
 
 /**
  * Render a Bedwars stats card as PNG bytes. Mode-aware — tame.gg's OG route
  * only covers overall Bedwars, so the bot generates these locally for the
- * mode selector while keeping the same dark tame.gg palette.
+ * mode selector while keeping the same dark, refined tame.gg brand language:
+ * Instrument Serif headline numbers, Syne eyebrows, gold accent.
  */
 export async function renderBedwarsCard(
   preview: PlayerPreview,
@@ -183,59 +393,67 @@ export async function renderBedwarsCard(
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, W, H);
+  drawBackground(ctx);
 
   const modeLabel = MODE_LABELS[mode];
-  const rankPrefix = preview.rank?.label ? `[${preview.rank.label}] ` : "";
-
-  // Header eyebrow
-  ctx.fillStyle = ACCENT;
-  ctx.font = "600 16px system-ui, Segoe UI, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(`HYPIXEL BEDWARS · ${modeLabel.toUpperCase()}`, 40, 44);
-
-  // Player head — best-effort; card still renders if mc-heads is slow.
-  try {
-    const head = await loadImage(`https://mc-heads.net/head/${encodeURIComponent(preview.uuid)}/128`);
-    roundRect(ctx, 40, 68, 96, 96, 10);
-    ctx.save();
-    roundRect(ctx, 40, 68, 96, 96, 10);
-    ctx.clip();
-    ctx.drawImage(head, 40, 68, 96, 96);
-    ctx.restore();
-    ctx.strokeStyle = PANEL_BORDER;
-    ctx.lineWidth = 1;
-    roundRect(ctx, 40, 68, 96, 96, 10);
-    ctx.stroke();
-  } catch {
-    roundRect(ctx, 40, 68, 96, 96, 10);
-    ctx.fillStyle = PANEL;
-    ctx.fill();
-  }
-
-  // Username + star
-  ctx.fillStyle = TEXT;
-  ctx.font = "700 44px system-ui, Segoe UI, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(`${rankPrefix}${preview.ign}`, 156, 108);
-
   const { metrics, hasMode } = pickBedwarsMetrics(preview, mode);
+
+  // Eyebrow — Syne caps, gold, tracked.
+  ctx.fillStyle = ACCENT;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `15px ${DISPLAY}`;
+  fillTextTracked(ctx, `HYPIXEL BEDWARS · ${modeLabel.toUpperCase()}`, PAD, 50, 3);
+
+  await drawHead(ctx, preview.uuid);
+
   const star = findMetric(metrics, "star");
-  if (star && star.value !== null) {
-    ctx.fillStyle = ACCENT;
-    ctx.font = "600 22px system-ui, Segoe UI, sans-serif";
-    ctx.fillText(`★ ${formatNumber(star.value, 0)}`, 156, 142);
+  const starValue = star && star.value !== null ? star.value : null;
+  const pillLeft = drawStarBadge(ctx, starValue);
+
+  // Rank tag (colored) above the IGN.
+  const hasRank = preview.rank && preview.rank.key !== "NONE" && preview.rank.label !== "None";
+  if (hasRank && preview.rank.segments.length > 0) {
+    drawRankTag(ctx, preview.rank.segments, preview.rank.primaryColor, CONTENT_X, 116);
+  } else if (hasRank) {
+    ctx.fillStyle = preview.rank.primaryColor || ACCENT;
+    ctx.font = `22px ${SANS_BOLD}`;
+    ctx.textAlign = "left";
+    ctx.fillText(`[${preview.rank.label}]`, CONTENT_X, 116);
   }
+
+  // IGN — Instrument Serif italic, large, fit to available width.
+  const ignMaxW = pillLeft - 28 - CONTENT_X;
+  const ignSize = fitFontSize(ctx, preview.ign, SERIF_ITALIC, ignMaxW, 60, 30);
+  ctx.fillStyle = TEXT;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `${ignSize}px ${SERIF_ITALIC}`;
+  ctx.fillText(preview.ign, CONTENT_X, 174);
+
+  // Header divider with a short gold tick.
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD, DIVIDER_Y);
+  ctx.lineTo(W - PAD, DIVIDER_Y);
+  ctx.stroke();
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(PAD, DIVIDER_Y);
+  ctx.lineTo(PAD + 64, DIVIDER_Y);
+  ctx.stroke();
 
   if (!hasMode) {
-    ctx.fillStyle = MUTED;
-    ctx.font = "500 24px system-ui, Segoe UI, sans-serif";
+    ctx.fillStyle = TEXT_DIM;
     ctx.textAlign = "center";
-    ctx.fillText(`No ${modeLabel} games tracked.`, W / 2, H / 2 + 20);
+    ctx.textBaseline = "middle";
+    ctx.font = `34px ${SERIF_ITALIC}`;
+    ctx.fillText(`No ${modeLabel} games tracked yet.`, W / 2, (GRID_TOP + GRID_BOTTOM) / 2);
   } else {
-    const cellW = (W - GRID_PAD_X * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
-    const cellH = (H - GRID_TOP - GRID_BOTTOM_PAD - GRID_GAP * (GRID_ROWS - 1)) / GRID_ROWS;
+    const cellW = (W - PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+    const cellH = (GRID_BOTTOM - GRID_TOP - GRID_GAP * (GRID_ROWS - 1)) / GRID_ROWS;
 
     for (let row = 0; row < GRID_ROWS; row++) {
       const keys = BEDWARS_GRID[row]!;
@@ -247,18 +465,31 @@ export async function renderBedwarsCard(
           value: fmtMetric(metric),
           tone: cellTone(key),
         };
-        const x = GRID_PAD_X + col * (cellW + GRID_GAP);
-        const y = GRID_TOP + row * (cellH + GRID_GAP);
-        drawStatCell(ctx, x, y, cellW, cellH, cell);
+        const cx = PAD + col * (cellW + GRID_GAP);
+        const cy = GRID_TOP + row * (cellH + GRID_GAP);
+        drawStatCell(ctx, cx, cy, cellW, cellH, cell);
       }
     }
   }
 
-  // Footer
-  ctx.fillStyle = MUTED;
-  ctx.font = "500 18px system-ui, Segoe UI, sans-serif";
+  // Footer — tame.gg brand mark, Instrument Serif like the OG cards.
+  ctx.textBaseline = "alphabetic";
   ctx.textAlign = "right";
-  ctx.fillText("tame.gg/stats", W - 40, H - 24);
+  ctx.font = `26px ${SERIF}`;
+  const tail = ".tame.gg";
+  ctx.fillStyle = ACCENT;
+  ctx.font = `italic 26px ${SERIF_ITALIC}`;
+  const tailW = ctx.measureText(tail).width;
+  ctx.fillText(tail, W - PAD, H - 26);
+  ctx.fillStyle = TEXT;
+  ctx.font = `26px ${SERIF}`;
+  ctx.fillText("stats", W - PAD - tailW, H - 26);
+
+  // Footer-left: faint snapshot context to balance the brand mark.
+  ctx.textAlign = "left";
+  ctx.fillStyle = TEXT_FAINT;
+  ctx.font = `13px ${DISPLAY}`;
+  fillTextTracked(ctx, "BEDWARS STATS", PAD, H - 28, 2);
 
   return canvas.toBuffer("image/png");
 }
