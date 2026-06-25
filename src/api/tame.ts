@@ -42,6 +42,50 @@ export type PreviewGame = {
   modes?: Record<string, PreviewMetric[]>;
 };
 
+export type AdminBadgeKey = "admin" | "mod" | "famous" | "verified" | "linked";
+
+export type TrustTagKey =
+  | "confirmed_cheater"
+  | "blatant_cheater"
+  | "closet_cheater"
+  | "caution"
+  | "sniper"
+  | "legit_sniper"
+  | "possible_sniper"
+  | "info"
+  | "account";
+
+export type TrustSource = "urchin" | "seraph";
+
+export type TrustSourceStatus = "ok" | "disabled" | "error" | "rate_limited";
+
+export type TrustSummary = "clean" | "caution" | "sniper" | "cheater" | "confirmed";
+
+export type TrustTag = {
+  key: TrustTagKey;
+  label: string;
+  glyph: string;
+  severity: number;
+  source: TrustSource;
+  sources?: TrustSource[];
+  reason?: string;
+  verified?: boolean;
+  addedAt?: number;
+  addedBy?: string;
+  tone: "danger" | "warn" | "neutral" | "ok";
+};
+
+export type PlayerTrustStatus = {
+  summary: TrustSummary;
+  tags: TrustTag[];
+  safelisted: boolean;
+  fetchedAt: number;
+  sources: {
+    seraph: { status: TrustSourceStatus; error?: string };
+    urchin: { status: TrustSourceStatus; error?: string };
+  };
+};
+
 export type PlayerPreview = {
   uuid: string;
   ign: string;
@@ -49,6 +93,12 @@ export type PlayerPreview = {
   networkLevel: number | null;
   lastSnapshotAt: number | null;
   games: PreviewGame[];
+  /** Admin-curated flair badges. `linked` is auto-promoted when discord_links exists. */
+  adminBadges: AdminBadgeKey[];
+  /** Most-recently-linked Discord username (no @-prefix). */
+  discordUsername: string | null;
+  /** Community blacklist tags (Urchin + Seraph), when the feature is on. */
+  trust: PlayerTrustStatus | null;
 };
 
 export type HypixelSession = {
@@ -71,6 +121,98 @@ export type LeaderboardRow = {
   star: number;
   wins: number;
   fkdr: number | null;
+  adminBadges: AdminBadgeKey[];
+};
+
+export type GlobalLeaderboardRow = {
+  uuid: string;
+  ign: string;
+  value: number;
+  secondary?: number | null;
+  rank?: number;
+};
+
+export type GlobalLeaderboardPage = {
+  rows: GlobalLeaderboardRow[];
+  total: number;
+  hasMore: boolean;
+  nextCursor?: string | null;
+  approxTotal?: number;
+};
+
+export type TrackedRosterPlayer = {
+  uuid: string;
+  ign: string;
+  rank: HypixelRank;
+  networkLevel: number | null;
+  lastSnapshotAt: number | null;
+  modes: number;
+  topModes: string[];
+  daysTracked: number;
+  snapshots: number;
+  adminBadges: AdminBadgeKey[];
+};
+
+export type TrackedRosterPage = {
+  players: TrackedRosterPlayer[];
+  total: number;
+  hasMore: boolean;
+};
+
+export type TrendingPlayer = {
+  uuid: string;
+  ign: string;
+  score: number;
+  games: number;
+  fkdrChange: number;
+  starChange: number;
+};
+
+export type DenickerNickState =
+  | "likely_nicked"
+  | "uncertain"
+  | "real_account"
+  | "api_error"
+  | "invalid_ign";
+
+export type DenickerCheckResult = {
+  ign: string;
+  state: DenickerNickState;
+  mojangUuid?: string;
+  mojangIgn?: string;
+  hypixelFound?: boolean;
+  message: string;
+  tips: string[];
+};
+
+export type RankIndexPlayer = {
+  uuid: string;
+  ign: string;
+};
+
+export type RankIndexGroup = {
+  rank: HypixelRank;
+  count: number;
+  players: RankIndexPlayer[];
+};
+
+export type RankIndex = {
+  groups: RankIndexGroup[];
+  totalPlayers: number;
+  totalRanks: number;
+};
+
+export type SiteAnnouncement = {
+  text: string;
+};
+
+export type TickerItem = {
+  id: string;
+  text: string;
+};
+
+export type SiteTicker = {
+  items: TickerItem[];
 };
 
 export type RecentlyTrackedPlayer = {
@@ -115,6 +257,8 @@ export type HypixelNetworkStatus = {
 
 const statsBaseUrl = env.TAME_API_BASE.replace(/\/+$/, "");
 const apiBaseUrl = statsBaseUrl.replace(/\/stats$/, "");
+/** Origin header for tame.gg web APIs gated by `hasAllowedAppOrigin`. */
+const appOrigin = new URL(apiBaseUrl).origin;
 
 export class TameApiError extends Error {
   constructor(
@@ -219,6 +363,49 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
 
   // Loop exits only via throw; this is just to keep TS happy.
   throw lastError ?? new TameApiError("network", "unreachable");
+}
+
+/**
+ * Fetch a JSON endpoint on tame.gg that requires a browser-style Origin
+ * header (`/api/leaderboard`, `/api/tracked`, `/api/denicker/*`, …).
+ */
+async function requestAppJson<T>(path: string, opts: { timeoutMs?: number } = {}): Promise<T> {
+  const url = `${apiBaseUrl}${path}`;
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const startedAt = performance.now();
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", Origin: appOrigin },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const ms = Math.round(performance.now() - startedAt);
+    log.info({ method: "GET", url: path, status: res.status, ms }, "tame app api call");
+
+    if (res.status === 403) {
+      throw new TameApiError("forbidden", `403 from ${path} — origin rejected`, 403);
+    }
+    if (res.status === 404) {
+      throw new TameApiError("not_found", `404 from ${path}`, 404);
+    }
+    if (res.status === 429) {
+      throw new TameApiError("client", `rate limited on ${path}`, 429);
+    }
+    if (!res.ok) {
+      throw new TameApiError(
+        res.status >= 500 ? "server" : "client",
+        `HTTP ${res.status} from ${path}`,
+        res.status,
+      );
+    }
+    return (await res.json()) as T;
+  } catch (err) {
+    if (err instanceof TameApiError) throw err;
+    const isTimeout = err instanceof Error && err.name === "TimeoutError";
+    throw new TameApiError(
+      isTimeout ? "timeout" : "network",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 export const tame = {
@@ -471,6 +658,108 @@ export const tame = {
     }
   },
 
+  /** Site-wide announcement banner copy. Empty string means no banner. */
+  async announcement(): Promise<SiteAnnouncement | null> {
+    try {
+      return await requestJson<SiteAnnouncement>(`/api/announcement`, { withBotAuth: false });
+    } catch (err) {
+      if (err instanceof TameApiError) {
+        log.debug({ kind: err.kind }, "tame.announcement degraded");
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  /** Recent activity marquee lines shown at the top of tame.gg pages. */
+  async ticker(): Promise<SiteTicker | null> {
+    try {
+      return await requestJson<SiteTicker>(`/api/ticker`, { withBotAuth: false });
+    } catch (err) {
+      if (err instanceof TameApiError) {
+        log.debug({ kind: err.kind }, "tame.ticker degraded");
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  /**
+   * Full global leaderboard page — mirrors `/stats/leaderboard` on the site.
+   * Backed by `/api/leaderboard` (game, metric, sort, limit, offset).
+   */
+  async globalLeaderboard(opts: {
+    game: string;
+    metric: string;
+    sort?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  }): Promise<GlobalLeaderboardPage> {
+    const params = new URLSearchParams({
+      game: opts.game,
+      metric: opts.metric,
+      sort: opts.sort ?? "desc",
+      limit: String(Math.min(Math.max(opts.limit ?? 10, 1), 20)),
+      offset: String(Math.max(opts.offset ?? 0, 0)),
+    });
+    return requestAppJson<GlobalLeaderboardPage>(`/api/leaderboard?${params.toString()}`);
+  },
+
+  /** Paginated tracked roster — mirrors `/stats/tracked`. */
+  async trackedRoster(limit = 10, offset = 0): Promise<TrackedRosterPage> {
+    const params = new URLSearchParams({
+      limit: String(Math.min(Math.max(limit, 1), 16)),
+      offset: String(Math.max(offset, 0)),
+    });
+    return requestAppJson<TrackedRosterPage>(`/api/tracked?${params.toString()}`);
+  },
+
+  /** Biggest movers over the last few days — public, no origin gate. */
+  async trending(limit = 6): Promise<TrendingPlayer[]> {
+    try {
+      const body = await requestJson<{ trending: TrendingPlayer[] }>(`/api/trending`, {
+        withBotAuth: false,
+      });
+      return (body.trending ?? []).slice(0, Math.min(Math.max(limit, 1), 25));
+    } catch (err) {
+      if (err instanceof TameApiError) {
+        log.debug({ kind: err.kind }, "tame.trending degraded");
+        return [];
+      }
+      throw err;
+    }
+  },
+
+  /** Quick nick check — mirrors the Denicker "Check" tab on `/stats/denicker`. */
+  async denickerCheck(ign: string): Promise<DenickerCheckResult | null> {
+    const trimmed = ign.trim();
+    if (!trimmed) return null;
+    try {
+      return await requestAppJson<DenickerCheckResult>(
+        `/api/denicker/check?${new URLSearchParams({ ign: trimmed }).toString()}`,
+      );
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  },
+
+  /**
+   * Hypixel rank index across the tracked roster — mirrors `/stats/ranks`.
+   * Requires `/api/bot/ranks` on tame.gg (not deployed yet); returns null on 404.
+   */
+  async ranks(limitGroups = 15): Promise<RankIndex | null> {
+    const params = new URLSearchParams({ limit: String(Math.min(Math.max(limitGroups, 1), 25)) });
+    try {
+      return await requestJson<RankIndex>(`/api/bot/ranks?${params.toString()}`, {
+        withBotAuth: true,
+      });
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  },
+
   /** Build a URL on the configured tame.gg/stats base. `path` should start with `/`. */
   siteUrl(path: string): string {
     return `${statsBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -478,6 +767,11 @@ export const tame = {
 
   ogPlayer(ign: string): string {
     return `${statsBaseUrl}/${encodeURIComponent(ign)}/opengraph-image`;
+  },
+
+  /** Per-game OG card at `/stats/<ign>/<game>/opengraph-image`. */
+  ogGame(ign: string, gameId: string): string {
+    return `${statsBaseUrl}/${encodeURIComponent(ign)}/${encodeURIComponent(gameId)}/opengraph-image`;
   },
 
   ogCompare(igns: readonly string[]): string {

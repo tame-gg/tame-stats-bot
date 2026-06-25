@@ -11,6 +11,7 @@ import {
   themeAuthor,
   themeFooter,
 } from "./theme.ts";
+import { appendFlairLines } from "./flair.ts";
 
 /**
  * Headline metrics rendered as the 2-up row at the top of a per-game embed.
@@ -156,7 +157,11 @@ function buildBedwarsEmbed(
 
   if (!game || !game.hasPlayed) {
     embed.setDescription(
-      onlineLine ?? `*No Bedwars stats — either they haven't played, or their Hypixel API setting is off.*`,
+      appendFlairLines(
+        onlineLine ??
+          `*No Bedwars stats — either they haven't played, or their Hypixel API setting is off.*`,
+        preview,
+      ),
     );
     return embed;
   }
@@ -170,7 +175,7 @@ function buildBedwarsEmbed(
     const description = onlineLine
       ? `${onlineLine}\n*No ${modeLabel} games tracked.*`
       : `*No ${modeLabel} games tracked.*`;
-    embed.setDescription(description);
+    embed.setDescription(appendFlairLines(description, preview));
     embed.addFields(statField("FKDR", "—"), statField("WLR", "—"), ruleField());
     embed.addFields(
       BEDWARS_SECONDARY_KEYS.map((key) => statField(formatBedwarsLabel(key), "—")),
@@ -184,7 +189,8 @@ function buildBedwarsEmbed(
   const descLines = [onlineLine, editorial ? `*${editorial}*` : null].filter(
     (line): line is string => line !== null,
   );
-  if (descLines.length > 0) embed.setDescription(descLines.join("\n"));
+  const withFlair = appendFlairLines(descLines.join("\n"), preview);
+  if (withFlair) embed.setDescription(withFlair);
 
   // Headline 2-up: FKDR, WLR.
   embed.addFields(
@@ -280,7 +286,10 @@ export function buildGameEmbed(
 
   if (!game || !game.hasPlayed) {
     embed.setDescription(
-      `*No ${gameLabel} stats — either they haven't played, or their Hypixel API setting is off.*`,
+      appendFlairLines(
+        `*No ${gameLabel} stats — either they haven't played, or their Hypixel API setting is off.*`,
+        preview,
+      ),
     );
     return embed;
   }
@@ -288,7 +297,10 @@ export function buildGameEmbed(
   // Online state earns one italic line above the metrics; offline we don't
   // pad — the prompt is explicit about not adding empty editorial copy.
   if (session?.online) {
-    embed.setDescription(`*Online — ${compactSession(session)}.*`);
+    embed.setDescription(appendFlairLines(`*Online — ${compactSession(session)}.*`, preview));
+  } else {
+    const flairOnly = appendFlairLines("", preview);
+    if (flairOnly) embed.setDescription(flairOnly);
   }
 
   // Split metrics into headline (the 2-up row) and the rest (the secondary
@@ -352,7 +364,7 @@ export function buildHypixelOverviewEmbed(
     .setURL(tame.playerUrl(ign))
     .setColor(rankSidebar(preview.rank?.key))
     .setThumbnail(headUrl(preview.uuid))
-    .setDescription(stateLine)
+    .setDescription(appendFlairLines(stateLine, preview))
     .addFields(
       // ✦ glyph is the website's network-level mark — the lone exception to
       // the "no emoji prefixes on field values" rule.

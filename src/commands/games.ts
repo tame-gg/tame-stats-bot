@@ -5,7 +5,11 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import { tame, type BedwarsMode } from "../api/tame.ts";
-import { buildGameEmbed, buildHypixelOverviewEmbed } from "../embeds/game.ts";
+import {
+  buildBedwarsStatsReply,
+  buildGameStatsReply,
+  buildHypixelStatsReply,
+} from "../images/stats-reply.ts";
 import { resolveCommandTarget } from "./target.ts";
 import type { BotCommand } from "./types.ts";
 
@@ -125,23 +129,24 @@ function makeGameCommand(spec: GameSpec): BotCommand {
         return;
       }
 
-      const embed = buildGameEmbed(
-        { ...preview, ign: resolved.ign },
-        spec.gameId,
-        spec.gameLabel,
-        session,
-      );
+      const previewWithIgn = { ...preview, ign: resolved.ign };
 
-      // /bedwars ships with the mode-selector button rows under the embed;
-      // Discord caps 5 buttons per row, so the 6 modes split across two.
-      // Other game commands ship no buttons — they're stat-fixed.
       if (spec.gameId === "bedwars") {
-        await interaction.editReply({
-          embeds: [embed],
-          components: buildBedwarsModeRows(preview.uuid, "overall"),
-        });
+        const reply = await buildBedwarsStatsReply(
+          previewWithIgn,
+          session,
+          "overall",
+          buildBedwarsModeRows(preview.uuid, "overall"),
+        );
+        await interaction.editReply(reply);
       } else {
-        await interaction.editReply({ embeds: [embed] });
+        const reply = await buildGameStatsReply(
+          previewWithIgn,
+          spec.gameId,
+          spec.gameLabel,
+          session,
+        );
+        await interaction.editReply(reply);
       }
     },
   };
@@ -193,9 +198,8 @@ export const hypixelCommand: BotCommand = {
       return;
     }
 
-    await interaction.editReply({
-      embeds: [buildHypixelOverviewEmbed({ ...preview, ign: resolved.ign }, session)],
-    });
+    const reply = await buildHypixelStatsReply({ ...preview, ign: resolved.ign }, session);
+    await interaction.editReply(reply);
   },
 };
 hypixelCommand.json = hypixelData.toJSON();

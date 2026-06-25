@@ -1,6 +1,6 @@
 import { SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
-import { buildPlayerEmbed } from "../embeds/player.ts";
+import { buildPlayerStatsReply } from "../images/stats-reply.ts";
 import { resolveCommandTarget } from "./target.ts";
 import type { BotCommand } from "./types.ts";
 
@@ -43,9 +43,8 @@ export const statsCommand: BotCommand = {
       return;
     }
 
-    await interaction.editReply({
-      embeds: [buildPlayerEmbed({ ...preview, ign: resolved.ign }, session)],
-    });
+    const reply = await buildPlayerStatsReply({ ...preview, ign: resolved.ign }, session);
+    await interaction.editReply(reply);
   },
 };
 statsCommand.json = statsCommand.data.toJSON();

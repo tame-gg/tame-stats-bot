@@ -2,6 +2,7 @@ import { EmbedBuilder } from "discord.js";
 import type { HypixelSession, PlayerPreview, PreviewMetric } from "../api/tame.ts";
 import { tame } from "../api/tame.ts";
 import { compactSession, formatNumber } from "../util.ts";
+import { appendFlairLines } from "./flair.ts";
 import { rankSidebar, themeAuthor, themeFooter } from "./theme.ts";
 
 function findMetric(preview: PlayerPreview, gameId: string, key: string): PreviewMetric | null {
@@ -56,7 +57,7 @@ export function buildPlayerEmbed(preview: PlayerPreview, session: HypixelSession
     .setTitle(title)
     .setURL(tame.playerUrl(ign))
     .setColor(rankSidebar(preview.rank?.key))
-    .setDescription(`${description}\n${metricLine}`)
+    .setDescription(appendFlairLines(`${description}\n${metricLine}`, preview))
     .setImage(tame.ogPlayer(ign))
     .setFooter(themeFooter(ign));
 }

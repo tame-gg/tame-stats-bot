@@ -2,9 +2,9 @@ import { type ButtonInteraction, MessageFlags } from "discord.js";
 import { tame, type BedwarsMode, type HypixelSession } from "../api/tame.ts";
 import { buildBedwarsModeRows } from "../commands/games.ts";
 import { renderLeaderboard } from "../commands/leaderboard.ts";
-import { buildGameEmbed } from "../embeds/game.ts";
+import { renderGlobalLeaderboard } from "../commands/globallb.ts";
+import { buildBedwarsStatsReply } from "../images/stats-reply.ts";
 import { log } from "../log.ts";
-
 const BEDWARS_MODES: ReadonlySet<BedwarsMode> = new Set([
   "overall",
   "solo",
@@ -91,12 +91,13 @@ async function handleBedwarsModeClick(interaction: ButtonInteraction): Promise<v
     .session(uuid)
     .catch(() => ({ online: false }) as const);
 
-  const embed = buildGameEmbed(preview, "bedwars", "Bedwars", session, mode);
-  await interaction.editReply({
-    embeds: [embed],
-    components: buildBedwarsModeRows(uuid, mode),
-  });
-}
+  const reply = await buildBedwarsStatsReply(
+    preview,
+    session,
+    mode,
+    buildBedwarsModeRows(uuid, mode),
+  );
+  await interaction.editReply(reply);}
 
 /**
  * `/leaderboard` game-selector button click. Re-runs the same leaderboard
@@ -138,6 +139,33 @@ async function handleLeaderboardGameClick(interaction: ButtonInteraction): Promi
 }
 
 /**
+ * `/globallb` game-selector button click. Re-runs the global leaderboard for
+ * the requested game, preserving the metric encoded in the customId.
+ */
+async function handleGlobalLbGameClick(interaction: ButtonInteraction): Promise<void> {
+  const parts = interaction.customId.split(":");
+  if (parts.length !== 4) {
+    log.warn({ customId: interaction.customId }, "malformed glb:game button");
+    return;
+  }
+  const [, , game, metric] = parts;
+  if (!game || !metric) {
+    log.warn({ customId: interaction.customId }, "missing game/metric in glb button");
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const result = await renderGlobalLeaderboard(game, metric, 10);
+  if (result.kind === "empty") {
+    await interaction.followUp({ content: result.message, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  await interaction.editReply({ embeds: [result.embed], components: result.rows });
+}
+
+/**
  * Single button dispatcher. Switches on the `customId` prefix and routes
  * to the per-feature handler. Unknown prefixes are ignored — Discord
  * delivers stale customIds from old messages and we don't want to spam
@@ -153,6 +181,10 @@ export async function dispatchButton(interaction: ButtonInteraction): Promise<vo
   }
   if (customId.startsWith("lb:game:")) {
     await handleLeaderboardGameClick(interaction);
+    return;
+  }
+  if (customId.startsWith("glb:game:")) {
+    await handleGlobalLbGameClick(interaction);
     return;
   }
 

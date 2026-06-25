@@ -1,6 +1,7 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
 import { THEME, codeBlock, padLeft, padRight, themeAuthor, themeFooter } from "../embeds/theme.ts";
+import { adminBadgeGlyphs } from "../embeds/flair.ts";
 import { formatNumber } from "../util.ts";
 import type { BotCommand } from "./types.ts";
 
@@ -27,12 +28,13 @@ export const topPlayersCommand: BotCommand = {
     // Rank is right-padded to the widest index (`10.` → 3 chars). IGN width
     // tracks the longest seen, capped to Mojang's 16-char max.
     const widestRank = String(rows.length).length + 1; // "10." → 3
-    const ignWidth = Math.min(16, Math.max(...rows.map((r) => r.ign.length)));
+    const displayIgns = rows.map((row) => `${adminBadgeGlyphs(row.adminBadges ?? [])}${row.ign}`);
+    const ignWidth = Math.min(20, Math.max(...displayIgns.map((ign) => ign.length)));
     const starWidth = Math.max(...rows.map((r) => formatNumber(r.star, 0).length));
 
     const lines = rows.map((row, index) => {
       const rank = padLeft(`${index + 1}.`, widestRank);
-      const ign = padRight(row.ign, ignWidth);
+      const ign = padRight(displayIgns[index] as string, ignWidth);
       const star = padLeft(formatNumber(row.star, 0), starWidth);
       const fkdr = row.fkdr !== null ? formatNumber(row.fkdr, 2) : "—";
       return `${rank}  ${ign}   ★ ${star}   FKDR ${fkdr}`;
