@@ -289,8 +289,8 @@ function drawStarBadge(ctx: SKRSContext2D, star: number | null): number {
 
   ctx.font = `30px ${DISPLAY_BOLD}`;
   const textW = ctx.measureText(value).width;
-  const padX = 22;
-  const iconGap = 12;
+  const padX = 24;
+  const iconGap = 11;
   const pillW = padX + iconR * 2 + iconGap + textW + padX;
   const pillX = W - PAD - pillW;
   const pillY = cy - pillH / 2;
@@ -302,13 +302,18 @@ function drawStarBadge(ctx: SKRSContext2D, star: number | null): number {
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  drawStar(ctx, pillX + padX + iconR, cy, iconR, iconR * 0.46, ACCENT);
+  // A 5-point star's geometric center sits above its visual mass (the two lower
+  // arms extend further down than the single top tip). Nudge the draw origin
+  // down so the star's bounding box — not its centroid — centers on the pill,
+  // putting it on the same line as the number.
+  const starCy = cy + iconR * 0.095;
+  drawStar(ctx, pillX + padX + iconR, starCy, iconR, iconR * 0.46, ACCENT);
 
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillStyle = ACCENT;
   ctx.font = `30px ${DISPLAY_BOLD}`;
-  ctx.fillText(value, pillX + padX + iconR * 2 + iconGap, cy + 2);
+  ctx.fillText(value, pillX + padX + iconR * 2 + iconGap, cy);
 
   return pillX;
 }
@@ -472,18 +477,18 @@ export async function renderBedwarsCard(
     }
   }
 
-  // Footer — tame.gg brand mark, Instrument Serif like the OG cards.
+  // Footer — tame.gg/stats brand mark, Instrument Serif like the OG cards.
+  // `tame.gg` carries the gold brand accent; `/stats` trails in a dimmer tone.
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "right";
+  const tail = "/stats";
+  ctx.fillStyle = TEXT_DIM;
   ctx.font = `26px ${SERIF}`;
-  const tail = ".tame.gg";
-  ctx.fillStyle = ACCENT;
-  ctx.font = `italic 26px ${SERIF_ITALIC}`;
   const tailW = ctx.measureText(tail).width;
   ctx.fillText(tail, W - PAD, H - 26);
-  ctx.fillStyle = TEXT;
-  ctx.font = `26px ${SERIF}`;
-  ctx.fillText("stats", W - PAD - tailW, H - 26);
+  ctx.fillStyle = ACCENT;
+  ctx.font = `italic 26px ${SERIF_ITALIC}`;
+  ctx.fillText("tame.gg", W - PAD - tailW, H - 26);
 
   // Footer-left: faint snapshot context to balance the brand mark.
   ctx.textAlign = "left";
