@@ -5,6 +5,20 @@ import { formatNumber } from "../util.ts";
 const W = 1000;
 const H = 560;
 
+const GRID_TOP = 176;
+const GRID_BOTTOM_PAD = 36;
+const GRID_GAP = 10;
+const GRID_ROWS = 4;
+const GRID_COLS = 3;
+const GRID_PAD_X = 40;
+
+const CELL_PAD_X = 14;
+const CELL_PAD_Y = 12;
+const LABEL_FONT_SIZE = 11;
+const LABEL_VALUE_GAP = 8;
+const VALUE_FONT_MAX = 36;
+const VALUE_FONT_MIN = 20;
+
 const BG = "#0A0A0A";
 const PANEL = "rgba(255,255,255,0.04)";
 const PANEL_BORDER = "rgba(255,255,255,0.10)";
@@ -114,6 +128,20 @@ function roundRect(
   ctx.closePath();
 }
 
+function fitValueFontSize(
+  ctx: SKRSContext2D,
+  text: string,
+  maxWidth: number,
+  maxSize: number,
+  minSize: number,
+): number {
+  for (let size = maxSize; size >= minSize; size -= 1) {
+    ctx.font = `700 ${size}px system-ui, Segoe UI, sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth) return size;
+  }
+  return minSize;
+}
+
 function drawStatCell(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, cell: GridCell): void {
   roundRect(ctx, x, y, w, h, 12);
   ctx.fillStyle = PANEL;
@@ -122,14 +150,25 @@ function drawStatCell(ctx: SKRSContext2D, x: number, y: number, w: number, h: nu
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.fillStyle = MUTED;
-  ctx.font = "600 13px system-ui, Segoe UI, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(cell.label.toUpperCase(), x + w / 2, y + 28);
+  const innerW = w - CELL_PAD_X * 2;
+  const labelY = y + CELL_PAD_Y;
+  const valueBottom = y + h - CELL_PAD_Y;
+  const valueAreaTop = labelY + LABEL_FONT_SIZE + LABEL_VALUE_GAP;
+  const valueAreaHeight = Math.max(0, valueBottom - valueAreaTop);
 
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = MUTED;
+  ctx.font = `600 ${LABEL_FONT_SIZE}px system-ui, Segoe UI, sans-serif`;
+  ctx.fillText(cell.label.toUpperCase(), x + w / 2, labelY);
+
+  const maxValueSize = Math.min(VALUE_FONT_MAX, Math.floor(valueAreaHeight));
+  const valueSize = fitValueFontSize(ctx, cell.value, innerW, maxValueSize, VALUE_FONT_MIN);
+
+  ctx.textBaseline = "bottom";
   ctx.fillStyle = toneColor(cell.tone);
-  ctx.font = "700 42px system-ui, Segoe UI, sans-serif";
-  ctx.fillText(cell.value, x + w / 2, y + h - 22);
+  ctx.font = `700 ${valueSize}px system-ui, Segoe UI, sans-serif`;
+  ctx.fillText(cell.value, x + w / 2, valueBottom);
 }
 
 /**
@@ -195,17 +234,12 @@ export async function renderBedwarsCard(
     ctx.textAlign = "center";
     ctx.fillText(`No ${modeLabel} games tracked.`, W / 2, H / 2 + 20);
   } else {
-    const gridTop = 190;
-    const padX = 40;
-    const gap = 12;
-    const cols = 3;
-    const rows = 4;
-    const cellW = (W - padX * 2 - gap * (cols - 1)) / cols;
-    const cellH = (H - gridTop - 56 - gap * (rows - 1)) / rows;
+    const cellW = (W - GRID_PAD_X * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+    const cellH = (H - GRID_TOP - GRID_BOTTOM_PAD - GRID_GAP * (GRID_ROWS - 1)) / GRID_ROWS;
 
-    for (let row = 0; row < rows; row++) {
+    for (let row = 0; row < GRID_ROWS; row++) {
       const keys = BEDWARS_GRID[row]!;
-      for (let col = 0; col < cols; col++) {
+      for (let col = 0; col < GRID_COLS; col++) {
         const key = keys[col]!;
         const metric = findMetric(metrics, key);
         const cell: GridCell = {
@@ -213,8 +247,8 @@ export async function renderBedwarsCard(
           value: fmtMetric(metric),
           tone: cellTone(key),
         };
-        const x = padX + col * (cellW + gap);
-        const y = gridTop + row * (cellH + gap);
+        const x = GRID_PAD_X + col * (cellW + GRID_GAP);
+        const y = GRID_TOP + row * (cellH + GRID_GAP);
         drawStatCell(ctx, x, y, cellW, cellH, cell);
       }
     }
