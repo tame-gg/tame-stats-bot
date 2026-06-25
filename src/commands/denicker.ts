@@ -1,7 +1,25 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
-import { tame, type DenickerNickState } from "../api/tame.ts";
+import { tame, TameApiError, type DenickerNickState } from "../api/tame.ts";
 import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import type { BotCommand } from "./types.ts";
+
+/** Mirror tame.gg's `isValidIgn` so we reject junk before a wasted API hop. */
+const IGN_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
+
+/** Map the denicker endpoint's error surface to a friendly, actionable line. */
+function denickerErrorMessage(err: unknown): string {
+  if (err instanceof TameApiError) {
+    if (err.status === 400) return "That doesn't look like a valid Minecraft username.";
+    if (err.status === 429) return "Denicker is rate limited right now — try again in a minute.";
+    if (err.status === 503 || err.kind === "server") {
+      return "Denicker is temporarily unavailable — try again shortly.";
+    }
+    if (err.kind === "timeout" || err.kind === "network") {
+      return "tame.gg looks unreachable right now — try again in a moment.";
+    }
+  }
+  return "Denicker lookup failed — try again shortly.";
+}
 
 function stateHeadline(state: DenickerNickState): string {
   switch (state) {
@@ -41,15 +59,20 @@ export const denickerCommand: BotCommand = {
   json: {} as never,
   async execute(interaction) {
     await interaction.deferReply();
-    const ign = interaction.options.getString("ign", true);
+    const ign = interaction.options.getString("ign", true).trim();
+
+    if (!IGN_PATTERN.test(ign)) {
+      await interaction.editReply(
+        `**${ign.slice(0, 32) || "(empty)"}** isn't a valid Minecraft username (1–16 letters, numbers or underscores).`,
+      );
+      return;
+    }
 
     let result;
     try {
       result = await tame.denickerCheck(ign);
     } catch (err) {
-      await interaction.editReply(
-        err instanceof Error ? err.message : "Denicker lookup failed — try again shortly.",
-      );
+      await interaction.editReply(denickerErrorMessage(err));
       return;
     }
 

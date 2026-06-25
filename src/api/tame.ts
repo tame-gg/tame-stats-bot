@@ -202,6 +202,23 @@ export type RankIndex = {
   totalRanks: number;
 };
 
+/**
+ * A rank breakdown the bot computes itself by paging the public tracked-roster
+ * endpoint, used as a graceful fallback when tame.gg hasn't shipped the
+ * server-side `/api/bot/ranks` (DB-backed `getRankIndex()`) yet. It's a live
+ * *sample* of the roster — honest about not being the full index.
+ */
+export type DerivedRankIndex = {
+  groups: RankIndexGroup[];
+  /** Players examined across the pages we fetched. */
+  sampled: number;
+  /** Of those, how many had a snapshot (so their rank is real, not defaulted). */
+  counted: number;
+  /** Total tracked players reported by the roster endpoint. */
+  rosterTotal: number;
+  totalRanks: number;
+};
+
 export type SiteAnnouncement = {
   text: string;
 };
@@ -758,6 +775,62 @@ export const tame = {
       if (err instanceof TameApiError && err.kind === "not_found") return null;
       throw err;
     }
+  },
+
+  /**
+   * Best-effort rank breakdown derived client-side by paging the public
+   * `/api/tracked` roster (each row already carries a parsed HypixelRank).
+   * Used when `/api/bot/ranks` isn't deployed. We page until we've collected a
+   * useful number of *snapshotted* players or hit a hard page cap, so a single
+   * /ranks invocation stays fast and doesn't exhaust the roster rate-limit.
+   * Players without a snapshot are skipped — their rank would default to
+   * "None" and pollute the distribution.
+   */
+  async rankIndexFromRoster(
+    opts: { minCounted?: number; maxPages?: number; pageSize?: number } = {},
+  ): Promise<DerivedRankIndex> {
+    const pageSize = Math.min(Math.max(opts.pageSize ?? 16, 1), 16);
+    const minCounted = opts.minCounted ?? 120;
+    const maxPages = Math.min(Math.max(opts.maxPages ?? 16, 1), 40);
+
+    const groups = new Map<string, RankIndexGroup>();
+    let sampled = 0;
+    let counted = 0;
+    let rosterTotal = 0;
+    let offset = 0;
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const result = await tame.trackedRoster(pageSize, offset);
+      rosterTotal = result.total;
+      if (result.players.length === 0) break;
+
+      for (const player of result.players) {
+        sampled += 1;
+        // No snapshot → rank is a defaulted "None", not a real observation.
+        if (player.lastSnapshotAt == null) continue;
+        counted += 1;
+        const key = `${player.rank.key}\0${player.rank.label}`;
+        let group = groups.get(key);
+        if (!group) {
+          group = { rank: player.rank, count: 0, players: [] };
+          groups.set(key, group);
+        }
+        group.count += 1;
+        if (group.players.length < 5) group.players.push({ uuid: player.uuid, ign: player.ign });
+      }
+
+      offset += result.players.length;
+      if (!result.hasMore) break;
+      if (counted >= minCounted) break;
+    }
+
+    const sorted = Array.from(groups.values()).sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.rank.label.localeCompare(b.rank.label, undefined, { sensitivity: "base" }),
+    );
+
+    return { groups: sorted, sampled, counted, rosterTotal, totalRanks: sorted.length };
   },
 
   /** Build a URL on the configured tame.gg/stats base. `path` should start with `/`. */

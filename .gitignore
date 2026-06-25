@@ -8,4 +8,6 @@ data/
 *.db
 *.db-shm
 *.db-wal
-e
+
+# Local clone of tame-gg/tame.gg used only for API research.
+.research/
