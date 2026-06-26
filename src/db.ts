@@ -74,6 +74,30 @@ export function migrate(): void {
       alert_channel_id  TEXT,
       updated_at        INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS command_audit (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      executed_at     INTEGER NOT NULL,
+      interaction_type TEXT NOT NULL,
+      command_name    TEXT NOT NULL,
+      discord_user_id TEXT NOT NULL,
+      discord_username TEXT,
+      guild_id        TEXT,
+      guild_name      TEXT,
+      channel_id      TEXT,
+      options_json    TEXT,
+      success         INTEGER NOT NULL,
+      error_message   TEXT,
+      duration_ms     INTEGER NOT NULL,
+      synced_at       INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS command_audit_executed_at_idx ON command_audit(executed_at DESC);
+    CREATE INDEX IF NOT EXISTS command_audit_synced_idx ON command_audit(synced_at);
+
+    CREATE TABLE IF NOT EXISTS telemetry_kv (
+      key   TEXT PRIMARY KEY,
+      value INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   ensureColumn("watches", "expires_at", "INTEGER");
