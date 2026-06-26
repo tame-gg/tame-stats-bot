@@ -1,4 +1,4 @@
-import type { Client } from "discord.js";
+import { ActivityType, type Activity, type Client, type PresenceStatus } from "discord.js";
 import { tame } from "../api/tame.ts";
 import {
   countLinks,
@@ -20,6 +20,64 @@ import {
 
 const BOT_VERSION = "0.1.0";
 const startedAt = Date.now();
+
+export type HeartbeatPresenceActivity = {
+  type: string;
+  name: string;
+  details?: string;
+  state?: string;
+};
+
+export type HeartbeatPresence = {
+  status: PresenceStatus;
+  activities: HeartbeatPresenceActivity[];
+  activityType?: string;
+  activityMessage?: string;
+};
+
+const ACTIVITY_TYPE_LABELS: Record<number, string> = {
+  [ActivityType.Playing]: "playing",
+  [ActivityType.Streaming]: "streaming",
+  [ActivityType.Listening]: "listening",
+  [ActivityType.Watching]: "watching",
+  [ActivityType.Custom]: "custom",
+  [ActivityType.Competing]: "competing",
+};
+
+function activityTypeLabel(type: number): string {
+  return ACTIVITY_TYPE_LABELS[type] ?? "unknown";
+}
+
+function formatActivityMessage(activity: Activity): string {
+  if (activity.type === ActivityType.Custom) {
+    return activity.state ?? activity.name ?? "";
+  }
+  const parts = [activity.name, activity.details, activity.state].filter(Boolean);
+  return parts.join(" · ") || activity.name;
+}
+
+export function collectPresence(client: Client<true>): HeartbeatPresence {
+  const presence = client.user.presence;
+  const status = presence?.status ?? "offline";
+  const activities = (presence?.activities ?? []).map((activity) => ({
+    type: activityTypeLabel(activity.type),
+    name: activity.name,
+    ...(activity.details ? { details: activity.details } : {}),
+    ...(activity.state ? { state: activity.state } : {}),
+  }));
+
+  const primary = presence?.activities?.[0];
+  return {
+    status,
+    activities,
+    ...(primary
+      ? {
+          activityType: activityTypeLabel(primary.type),
+          activityMessage: formatActivityMessage(primary),
+        }
+      : {}),
+  };
+}
 
 export type HeartbeatPayload = {
   botVersion: string;
@@ -44,6 +102,7 @@ export type HeartbeatPayload = {
   poller: { lastTickAt: number; watchedPlayerCount: number };
   system: Record<string, unknown>;
   telemetry: TelemetrySnapshot;
+  presence: HeartbeatPresence;
 };
 
 export function collectHeartbeatPayload(client: Client<true>): HeartbeatPayload {
@@ -103,6 +162,7 @@ export function collectHeartbeatPayload(client: Client<true>): HeartbeatPayload 
       bunVersion: typeof Bun !== "undefined" ? Bun.version : process.version,
     },
     telemetry: buildTelemetrySnapshot(),
+    presence: collectPresence(client),
   };
 }
 

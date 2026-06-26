@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, MessageFlags } from "discord.js";
+import { ActivityType, Client, GatewayIntentBits, MessageFlags } from "discord.js";
 import { runStartupSelfCheck } from "./api/self-check.ts";
 import { TameApiError } from "./api/tame.ts";
 import { dispatchAutocomplete, dispatchCommand } from "./commands/index.ts";
@@ -33,6 +33,10 @@ client.once("ready", async (readyClient) => {
     log.warn({ err }, "application.fetch failed");
   });
   await syncLinksOnReady(readyClient);
+  readyClient.user.setPresence({
+    status: "online",
+    activities: [{ name: "Hypixel stats", type: ActivityType.Watching }],
+  });
   if (env.AUTO_REGISTER_COMMANDS) {
     try {
       await registerSlashCommands();
