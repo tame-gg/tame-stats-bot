@@ -45,7 +45,7 @@ export const compareCommand: BotCommand = {
 
     // Pull previews concurrently for the FKDR text row. Each preview is null
     // when the player hasn't been tracked yet — the embed handles that.
-    const previewSettled = await Promise.allSettled(resolved.map((p) => tame.preview(p.uuid)));
+    const previewSettled = await Promise.allSettled(resolved.map((p) => tame.previewLive(p.uuid)));
     const previews = previewSettled.map((r) => (r.status === "fulfilled" ? r.value : null));
 
     await interaction.editReply({

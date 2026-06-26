@@ -1,6 +1,6 @@
-import { ActivityType, Client, GatewayIntentBits, MessageFlags } from "discord.js";
+import { Client, GatewayIntentBits, MessageFlags } from "discord.js";
 import { runStartupSelfCheck } from "./api/self-check.ts";
-import { TameApiError } from "./api/tame.ts";
+import { TameApiError, tame } from "./api/tame.ts";
 import { dispatchAutocomplete, dispatchCommand } from "./commands/index.ts";
 import { migrate } from "./db.ts";
 import {
@@ -16,6 +16,7 @@ import { startHealthServer, stopHealthServer } from "./health.ts";
 import { dispatchButton } from "./interactions/buttons.ts";
 import { log } from "./log.ts";
 import { startHeartbeatReporter, stopHeartbeatReporter } from "./panel/heartbeat.ts";
+import { applyPresenceConfig } from "./presence.ts";
 import { startPoller, stopPoller, waitForInflightTick } from "./poller/index.ts";
 import { syncLinksOnReady } from "./sync/links.ts";
 
@@ -33,10 +34,13 @@ client.once("ready", async (readyClient) => {
     log.warn({ err }, "application.fetch failed");
   });
   await syncLinksOnReady(readyClient);
-  readyClient.user.setPresence({
-    status: "online",
-    activities: [{ name: "Hypixel stats", type: ActivityType.Watching }],
+  const presenceConfig = await tame.getPresenceConfig().catch((err) => {
+    log.debug({ err }, "initial presence config fetch failed");
+    return null;
   });
+  if (presenceConfig) {
+    applyPresenceConfig(readyClient, presenceConfig);
+  }
   if (env.AUTO_REGISTER_COMMANDS) {
     try {
       await registerSlashCommands();

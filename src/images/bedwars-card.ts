@@ -29,25 +29,34 @@ const DISPLAY = "Syne";
 const DISPLAY_BOLD = "SyneBold";
 
 const W = 1080;
-const H = 760;
+const H = 820;
 const PAD = 36;
 
 const SKIN_X = PAD;
-const SKIN_Y = 72;
-const SKIN_W = 200;
-const SKIN_H = 300;
+const SKIN_Y = 78;
+const SKIN_W = 132;
+const SKIN_H = 176;
 
-const INFO_X = SKIN_X + SKIN_W + 28;
+const INFO_X = SKIN_X + SKIN_W + 24;
 const MISC_X = 780;
-const DIVIDER_Y = 392;
-const GRID_TOP = 418;
-const GRID_BOTTOM = H - 56;
+const DIVIDER_Y = 318;
+const GRID_TOP = 368;
+const GRID_BOTTOM = H - 52;
+
+const CELL_PAD_X = 14;
+const CELL_PAD_Y = 12;
+const LABEL_FONT_SIZE = 11;
+const LABEL_VALUE_GAP = 10;
+const VALUE_FONT_MAX = 34;
+const VALUE_FONT_MIN = 18;
 
 const TEXT = "#F2F2F2";
 const TEXT_DIM = "rgba(242,242,242,0.62)";
 const TEXT_FAINT = "rgba(242,242,242,0.40)";
 const LINE = "rgba(255,255,255,0.08)";
 const LINE_2 = "rgba(255,255,255,0.14)";
+const PANEL = "rgba(255,255,255,0.04)";
+const PANEL_BORDER = "rgba(255,255,255,0.10)";
 const ACCENT = "#E8B84A";
 const GREEN = "#5BD17E";
 const RED = "#E3685F";
@@ -101,6 +110,10 @@ const MISC_ROWS: Array<{
   { key: "emeralds", label: "Emeralds", color: GREEN },
 ];
 
+function cleanUuid(uuid: string): string {
+  return uuid.replace(/-/g, "").toLowerCase();
+}
+
 function findMetric(metrics: readonly PreviewMetric[], key: string): PreviewMetric | undefined {
   return metrics.find((m) => m.key === key);
 }
@@ -108,6 +121,32 @@ function findMetric(metrics: readonly PreviewMetric[], key: string): PreviewMetr
 function fmtMetric(metric: PreviewMetric | undefined): string {
   if (!metric || metric.value === null) return "—";
   return formatNumber(metric.value, metric.digits);
+}
+
+function resolveBedwarsMeta(preview: PlayerPreview): PlayerPreview["bedwars"] {
+  if (preview.bedwars) return preview.bedwars;
+
+  const game = preview.games.find((g) => g.id === "bedwars");
+  const starMetric = game?.metrics.find((m) => m.key === "star");
+  if (!starMetric || starMetric.value === null) return null;
+
+  const star = starMetric.value;
+  const starFloor = Math.floor(star);
+  return {
+    star,
+    starFloor,
+    starNext: starFloor + 1,
+    starColor: starColorForLevel(starFloor, ACCENT),
+    expCurrent: 0,
+    expRequired: 1,
+    tokens: null,
+    iron: null,
+    gold: null,
+    diamonds: null,
+    emeralds: null,
+    slumberTickets: null,
+    slumberTotal: null,
+  };
 }
 
 function pickBedwarsMetrics(
@@ -224,7 +263,7 @@ function starColorForLevel(level: number, fallback: string): string {
   return colors[prestige] ?? fallback;
 }
 
-async function drawBackground(ctx: SKRSContext2D): Promise<void> {
+function drawBackground(ctx: SKRSContext2D): void {
   const bg = ctx.createLinearGradient(0, 0, 0, H);
   bg.addColorStop(0, "#1a2332");
   bg.addColorStop(0.45, "#121820");
@@ -232,20 +271,19 @@ async function drawBackground(ctx: SKRSContext2D): Promise<void> {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.fillRect(0, 0, W, H);
-
-  const glow = ctx.createRadialGradient(SKIN_X + 80, SKIN_Y + 120, 0, SKIN_X + 80, SKIN_Y + 120, 420);
-  glow.addColorStop(0, "rgba(85,255,255,0.08)");
+  const glow = ctx.createRadialGradient(SKIN_X + 60, SKIN_Y + 90, 0, SKIN_X + 60, SKIN_Y + 90, 360);
+  glow.addColorStop(0, "rgba(85,255,255,0.10)");
   glow.addColorStop(1, "rgba(85,255,255,0)");
   ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, 420);
+  ctx.fillRect(0, 0, W, 360);
 }
 
 async function loadBodySkin(uuid: string) {
+  const id = encodeURIComponent(uuid);
+  const clean = cleanUuid(uuid);
   const urls = [
-    `https://visage.surgeplay.com/full/512/${encodeURIComponent(uuid)}`,
-    `https://minotar.net/body/${encodeURIComponent(uuid)}/200`,
+    `https://starlightskins.lunarclient.com/render/isometric/${clean}/bust?cameraWidth=280&cameraHeight=360`,
+    `https://minotar.net/bust/${id}/120`,
   ];
   for (const url of urls) {
     try {
@@ -260,15 +298,18 @@ async function loadBodySkin(uuid: string) {
 async function drawBodySkin(ctx: SKRSContext2D, uuid: string): Promise<void> {
   const skin = await loadBodySkin(uuid);
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.55)";
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 10;
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 8;
   if (skin) {
     ctx.drawImage(skin, SKIN_X, SKIN_Y, SKIN_W, SKIN_H);
   } else {
-    roundRect(ctx, SKIN_X, SKIN_Y, SKIN_W, SKIN_H, 16);
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    roundRect(ctx, SKIN_X, SKIN_Y, SKIN_W, SKIN_H, 14);
+    ctx.fillStyle = PANEL;
     ctx.fill();
+    ctx.strokeStyle = PANEL_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -367,12 +408,12 @@ function drawExpProgress(
   );
 
   const barY = y + 18;
-  const barH = 18;
+  const barH = 16;
   const labelW = 72;
   const barX = x + labelW;
   const barW = maxW - labelW * 2;
 
-  drawStarLevelTag(ctx, bw.starFloor, floorColor, x, barY + 14);
+  drawStarLevelTag(ctx, bw.starFloor, floorColor, x, barY + 13);
 
   roundRect(ctx, barX, barY, barW, barH, 4);
   ctx.fillStyle = "rgba(255,255,255,0.08)";
@@ -392,19 +433,19 @@ function drawExpProgress(
     ctx.fill();
   }
 
-  drawStarLevelTagRight(ctx, bw.starNext, nextColor, barX + barW + labelW, barY + 14);
+  drawStarLevelTagRight(ctx, bw.starNext, nextColor, barX + barW + labelW, barY + 13);
 }
 
 function drawMiscStats(ctx: SKRSContext2D, bw: NonNullable<PlayerPreview["bedwars"]>): void {
   const boxW = W - MISC_X - PAD;
-  let y = SKIN_Y + 8;
+  let y = SKIN_Y + 4;
 
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `11px ${DISPLAY}`;
   fillTextTracked(ctx, "MISC STATS", MISC_X, y, 1.6);
   y += 22;
 
-  roundRect(ctx, MISC_X, y, boxW, 228, 12);
+  roundRect(ctx, MISC_X, y, boxW, 248, 12);
   ctx.fillStyle = "rgba(0,0,0,0.28)";
   ctx.fill();
   ctx.strokeStyle = LINE;
@@ -412,9 +453,11 @@ function drawMiscStats(ctx: SKRSContext2D, bw: NonNullable<PlayerPreview["bedwar
   ctx.stroke();
 
   y += 24;
+  let rowsDrawn = 0;
   for (const row of MISC_ROWS) {
     const value = bw[row.key];
     if (value == null) continue;
+    rowsDrawn++;
     ctx.beginPath();
     ctx.arc(MISC_X + 16, y - 4, 4, 0, Math.PI * 2);
     ctx.fillStyle = row.color;
@@ -432,6 +475,7 @@ function drawMiscStats(ctx: SKRSContext2D, bw: NonNullable<PlayerPreview["bedwar
   }
 
   if (bw.slumberTickets != null) {
+    rowsDrawn++;
     ctx.fillStyle = PROGRESS;
     ctx.beginPath();
     ctx.arc(MISC_X + 16, y - 4, 4, 0, Math.PI * 2);
@@ -449,9 +493,8 @@ function drawMiscStats(ctx: SKRSContext2D, bw: NonNullable<PlayerPreview["bedwar
         : formatNumber(bw.slumberTickets, 0);
     ctx.fillText(ticketLabel, MISC_X + boxW - 16, y);
     y += 28;
-  }
-
-  if (bw.slumberTotal != null && bw.slumberTickets == null) {
+  } else if (bw.slumberTotal != null) {
+    rowsDrawn++;
     ctx.fillStyle = "#FF55FF";
     ctx.beginPath();
     ctx.arc(MISC_X + 16, y - 4, 4, 0, Math.PI * 2);
@@ -465,6 +508,13 @@ function drawMiscStats(ctx: SKRSContext2D, bw: NonNullable<PlayerPreview["bedwar
     ctx.font = `14px ${SANS_BOLD}`;
     ctx.fillText(formatNumber(bw.slumberTotal, 0), MISC_X + boxW - 16, y);
   }
+
+  if (rowsDrawn === 0) {
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.font = `13px ${SANS}`;
+    ctx.textAlign = "left";
+    ctx.fillText("No resource totals in snapshot.", MISC_X + 16, y);
+  }
 }
 
 function drawStatCell(
@@ -476,24 +526,31 @@ function drawStatCell(
   cell: GridCell,
 ): void {
   roundRect(ctx, x, y, w, h, 12);
-  ctx.fillStyle = "rgba(0,0,0,0.32)";
+  ctx.fillStyle = PANEL;
   ctx.fill();
-  ctx.strokeStyle = LINE;
+  ctx.strokeStyle = PANEL_BORDER;
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  const innerX = x + 16;
-  const innerW = w - 32;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = TEXT_DIM;
-  ctx.font = `11px ${DISPLAY}`;
-  fillTextTracked(ctx, cell.label.toUpperCase(), innerX, y + 26, 1.2);
+  const innerW = w - CELL_PAD_X * 2;
+  const labelY = y + CELL_PAD_Y;
+  const valueBottom = y + h - CELL_PAD_Y;
+  const valueAreaTop = labelY + LABEL_FONT_SIZE + LABEL_VALUE_GAP;
+  const valueAreaHeight = Math.max(0, valueBottom - valueAreaTop);
 
-  const size = fitFontSize(ctx, cell.value, SERIF, innerW, 36, 20);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = TEXT_DIM;
+  ctx.font = `${LABEL_FONT_SIZE}px ${DISPLAY}`;
+  ctx.fillText(cell.label.toUpperCase(), x + w / 2, labelY);
+
+  const maxValueSize = Math.min(VALUE_FONT_MAX, Math.floor(valueAreaHeight));
+  const valueSize = fitFontSize(ctx, cell.value, SERIF, innerW, maxValueSize, VALUE_FONT_MIN);
+
+  ctx.textBaseline = "bottom";
   ctx.fillStyle = toneColor(cell.tone);
-  ctx.font = `${size}px ${SERIF}`;
-  ctx.fillText(cell.value, innerX, y + h - 14);
+  ctx.font = `${valueSize}px ${SERIF}`;
+  ctx.fillText(cell.value, x + w / 2, valueBottom);
 }
 
 export async function renderBedwarsCard(
@@ -503,11 +560,11 @@ export async function renderBedwarsCard(
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  await drawBackground(ctx);
+  drawBackground(ctx);
 
   const modeLabel = MODE_LABELS[mode];
   const { metrics, hasMode } = pickBedwarsMetrics(preview, mode);
-  const bw = preview.bedwars;
+  const bw = resolveBedwarsMeta(preview);
 
   ctx.fillStyle = ACCENT;
   ctx.textAlign = "left";
@@ -518,28 +575,28 @@ export async function renderBedwarsCard(
   await drawBodySkin(ctx, preview.uuid);
 
   const hasRank = preview.rank && preview.rank.key !== "NONE" && preview.rank.label !== "None";
-  let headerY = 92;
+  let headerY = 88;
   if (hasRank && preview.rank.segments.length > 0) {
     drawRankTag(ctx, preview.rank.segments, INFO_X, headerY);
-    headerY += 30;
+    headerY += 28;
   } else if (hasRank) {
     ctx.fillStyle = preview.rank.primaryColor || ACCENT;
     ctx.font = `20px ${SANS_BOLD}`;
     ctx.fillText(`[${preview.rank.label}]`, INFO_X, headerY);
-    headerY += 30;
+    headerY += 28;
   }
 
   const verified = preview.adminBadges.includes("verified" as AdminBadgeKey);
   const ignMaxW = MISC_X - INFO_X - (verified ? 36 : 0) - 12;
-  const ignSize = fitFontSize(ctx, preview.ign, SERIF_ITALIC, ignMaxW, 52, 28);
+  const ignSize = fitFontSize(ctx, preview.ign, SERIF_ITALIC, ignMaxW, 48, 28);
   ctx.fillStyle = TEXT;
   ctx.font = `${ignSize}px ${SERIF_ITALIC}`;
-  ctx.fillText(preview.ign, INFO_X, headerY + 8);
+  ctx.fillText(preview.ign, INFO_X, headerY + 6);
   if (verified) {
     const ignW = ctx.measureText(preview.ign).width;
     drawVerifiedBadge(ctx, INFO_X + ignW + 18, headerY - 2);
   }
-  headerY += 36;
+  headerY += 34;
 
   if (bw) {
     ctx.fillStyle = TEXT_DIM;
@@ -547,17 +604,8 @@ export async function renderBedwarsCard(
     ctx.fillText("Level:", INFO_X, headerY);
     const levelX = INFO_X + ctx.measureText("Level:").width + 10;
     drawStarLevelTag(ctx, bw.starFloor, bw.starColor, levelX, headerY);
-    drawExpProgress(ctx, bw, INFO_X, headerY + 16, MISC_X - INFO_X - 20);
+    drawExpProgress(ctx, bw, INFO_X, headerY + 14, MISC_X - INFO_X - 20);
     drawMiscStats(ctx, bw);
-  } else {
-    const star = findMetric(metrics, "star");
-    const starValue = star && star.value !== null ? Math.floor(star.value) : null;
-    if (starValue != null) {
-      ctx.fillStyle = TEXT_DIM;
-      ctx.font = `15px ${SANS}`;
-      ctx.fillText("Level:", INFO_X, headerY);
-      drawStarLevelTag(ctx, starValue, ACCENT, INFO_X + 52, headerY);
-    }
   }
 
   ctx.strokeStyle = LINE;
@@ -569,7 +617,9 @@ export async function renderBedwarsCard(
 
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `12px ${DISPLAY}`;
-  fillTextTracked(ctx, `BEDWARS STATS (${modeLabel.toUpperCase()})`, PAD, DIVIDER_Y + 24, 1.5);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(`BEDWARS STATS (${modeLabel.toUpperCase()})`, PAD, DIVIDER_Y + 24);
 
   if (!hasMode) {
     ctx.fillStyle = TEXT_DIM;

@@ -37,7 +37,7 @@ const bedwarsMetrics: PreviewMetric[] = [
 ];
 
 const preview: PlayerPreview = {
-  uuid: "asianrizz", // mc-heads resolves IGN or UUID; IGN is fine for the test.
+  uuid: "853c80ef-3c37-49fd-aa49-938bfcadae7d",
   ign: "asianrizz",
   rank: {
     key: "MVP_PLUS_PLUS",
@@ -59,9 +59,24 @@ const preview: PlayerPreview = {
       modes: {},
     },
   ],
-  adminBadges: [],
+  adminBadges: ["verified"],
   discordUsername: null,
   trust: null,
+  bedwars: {
+    star: 489,
+    starFloor: 489,
+    starNext: 490,
+    starColor: "#FFAA00",
+    expCurrent: 12500,
+    expRequired: 487000,
+    tokens: 2840000,
+    iron: 912000,
+    gold: 456000,
+    diamonds: 89000,
+    emeralds: 12000,
+    slumberTickets: 3,
+    slumberTotal: 10,
+  },
 };
 
 const out = fileURLToPath(new URL("../assets/bedwars-card-sample.png", import.meta.url));

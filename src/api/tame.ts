@@ -1,5 +1,6 @@
 import { env } from "../env.ts";
 import { log } from "../log.ts";
+import type { PresenceConfig } from "../presence.ts";
 
 export type RankSegment = {
   text: string;
@@ -466,12 +467,30 @@ export const tame = {
   /**
    * Pulls the public preview blob for a tracked UUID. Public endpoint —
    * no bot auth header. Returns null when the UUID isn't tracked yet.
+   * Uses stored trust only — fine for bulk surfaces like leaderboards.
    */
   async preview(uuid: string): Promise<PlayerPreview | null> {
     try {
       return await requestJson<PlayerPreview>(
         `/api/preview/${encodeURIComponent(uuid)}`,
         { withBotAuth: false },
+      );
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  },
+
+  /**
+   * Bot-authenticated preview with live Urchin + Seraph trust. Same shape as
+   * `preview()` but hits `/api/bot/preview/{uuid}` so tags are current on
+   * every per-player command.
+   */
+  async previewLive(uuid: string): Promise<PlayerPreview | null> {
+    try {
+      return await requestJson<PlayerPreview>(
+        `/api/bot/preview/${encodeURIComponent(uuid)}`,
+        { withBotAuth: true, timeoutMs: 12_000 },
       );
     } catch (err) {
       if (err instanceof TameApiError && err.kind === "not_found") return null;
@@ -502,13 +521,13 @@ export const tame = {
   },
 
   /**
-   * Try `preview()` first; if the UUID isn't in the tracked roster yet,
+   * Try `previewLive()` first; if the UUID isn't in the tracked roster yet,
    * fall back to `track()` to enroll + snapshot, then use the preview that
    * comes back in that response. Single helper so each per-game command
    * doesn't have to repeat the dance.
    */
   async previewOrTrack(resolved: ResolvedPlayer): Promise<PlayerPreview | null> {
-    const existing = await tame.preview(resolved.uuid);
+    const existing = await tame.previewLive(resolved.uuid);
     if (existing) return existing;
     const tracked = await tame.track(resolved.ign);
     return tracked?.preview ?? null;
@@ -588,7 +607,7 @@ export const tame = {
   },
 
   /** Periodic telemetry for the tame.gg admin Discord bot dashboard. */
-  async postHeartbeat(payload: Record<string, unknown>): Promise<void> {
+  async postHeartbeat(payload: Record<string, unknown>): Promise<{ presence?: PresenceConfig }> {
     const url = `${apiBaseUrl}/api/bot/heartbeat`;
     const startedAt = performance.now();
     const res = await fetch(url, {
@@ -608,6 +627,69 @@ export const tame = {
         `HTTP ${res.status} from /api/bot/heartbeat`,
         res.status,
       );
+    }
+    try {
+      return (await res.json()) as { presence?: PresenceConfig };
+    } catch {
+      return {};
+    }
+  },
+
+  /** Sync command audit rows from local SQLite to tame.gg Postgres. */
+  async postAuditBatch(
+    entries: Array<{
+      id: number;
+      executedAt: number;
+      interactionType: string;
+      commandName: string;
+      discordUserId: string;
+      discordUsername: string | null;
+      guildId: string | null;
+      guildName: string | null;
+      channelId: string | null;
+      optionsJson: Record<string, unknown> | null;
+      success: boolean;
+      errorMessage: string | null;
+      durationMs: number;
+    }>,
+  ): Promise<{ inserted: number }> {
+    const url = `${apiBaseUrl}/api/bot/audit`;
+    const startedAt = performance.now();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.TAME_BOT_TOKEN}`,
+      },
+      body: JSON.stringify({ entries }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const ms = Math.round(performance.now() - startedAt);
+    log.info(
+      { method: "POST", url: "/api/bot/audit", status: res.status, ms, count: entries.length },
+      "tame api call",
+    );
+    if (!res.ok) {
+      throw new TameApiError(
+        res.status === 401 ? "unauthorized" : res.status >= 500 ? "server" : "client",
+        `HTTP ${res.status} from /api/bot/audit`,
+        res.status,
+      );
+    }
+    return (await res.json()) as { inserted: number };
+  },
+
+  /** Desired Discord presence config from tame.gg admin panel. */
+  async getPresenceConfig(): Promise<PresenceConfig | null> {
+    try {
+      const body = await requestJson<{ presence?: PresenceConfig }>("/api/bot/presence", {
+        withBotAuth: true,
+      });
+      return body.presence ?? null;
+    } catch (err) {
+      if (err instanceof TameApiError && err.kind === "not_found") return null;
+      log.debug({ err }, "tame.getPresenceConfig degraded");
+      return null;
     }
   },
 

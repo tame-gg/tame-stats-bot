@@ -1,5 +1,6 @@
 import { ActivityType, type Activity, type Client, type PresenceStatus } from "discord.js";
 import { tame } from "../api/tame.ts";
+import { applyPresenceConfig } from "../presence.ts";
 import {
   countLinks,
   countWatches,
@@ -15,6 +16,7 @@ import {
   markAuditSynced,
   pruneOldAudit,
   telemetryCounters,
+  auditEntryForSync,
   type TelemetrySnapshot,
 } from "../telemetry/index.ts";
 
@@ -169,14 +171,18 @@ export function collectHeartbeatPayload(client: Client<true>): HeartbeatPayload 
 async function syncAuditBatch(): Promise<void> {
   const batch = getUnsyncedAudit(100);
   if (batch.length === 0) return;
-  // Audit sync API on tame.gg is optional — heartbeat carries aggregate telemetry.
+  const entries = batch.map(auditEntryForSync);
+  await tame.postAuditBatch(entries);
   markAuditSynced(batch.map((entry) => entry.id));
   pruneOldAudit();
 }
 
 export async function postHeartbeat(client: Client<true>): Promise<void> {
   const payload = collectHeartbeatPayload(client);
-  await tame.postHeartbeat(payload);
+  const response = await tame.postHeartbeat(payload);
+  if (response.presence) {
+    applyPresenceConfig(client, response.presence);
+  }
   await syncAuditBatch().catch((err) => log.debug({ err }, "audit sync skipped"));
 }
 

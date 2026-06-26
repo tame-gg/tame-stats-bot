@@ -113,7 +113,7 @@ async function handleBedwarsModeClick(interaction: ButtonInteraction): Promise<v
 
   await interaction.deferUpdate();
 
-  const preview = await tame.preview(uuid);
+  const preview = await tame.previewLive(uuid);
   if (!preview) {
     await interaction.followUp({
       content: "Couldn't fetch updated stats — try `/bedwars <ign>` again.",
