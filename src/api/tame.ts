@@ -323,18 +323,39 @@ type RequestOpts = {
   method?: "GET" | "POST";
 };
 
+const REQUEST_MAX_ATTEMPTS = 3;
+const REQUEST_RETRY_BACKOFF_MS = [350, 1_000];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableTameError(err: TameApiError): boolean {
+  if (err.kind === "server" || err.kind === "timeout" || err.kind === "network") return true;
+  return err.kind === "client" && err.status === 429;
+}
+
 /**
- * Fetch a JSON endpoint on tame.gg/api with a single 5xx retry, structured
- * timing logs, and a typed error surface so callers can distinguish "this
- * player just doesn't exist" (404) from "the bot is misconfigured" (401)
- * from "tame.gg/api is having a moment" (5xx / network).
+ * Fetch a JSON endpoint on tame.gg/api with retries for transient failures,
+ * structured timing logs, and a typed error surface so callers can distinguish
+ * "this player just doesn't exist" (404) from "the bot is misconfigured" (401)
+ * from "tame.gg/api is having a moment" (5xx / network / timeout / 429).
  */
 async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
   const url = `${apiBaseUrl}${path}`;
   const timeoutMs = opts.timeoutMs ?? 10_000;
-  let lastError: unknown = null;
+  let lastError: TameApiError | null = null;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      const backoff = REQUEST_RETRY_BACKOFF_MS[attempt - 1] ?? 1_000;
+      log.warn(
+        { method: opts.method ?? "GET", url: path, attempt: attempt + 1, backoff, kind: lastError?.kind },
+        "tame api retry",
+      );
+      await sleep(backoff);
+    }
+
     const startedAt = performance.now();
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
@@ -343,7 +364,7 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
       const method = opts.method ?? "GET";
       const res = await fetch(url, { method, headers, signal: AbortSignal.timeout(timeoutMs) });
       const ms = Math.round(performance.now() - startedAt);
-      log.info({ method, url: path, status: res.status, ms }, "tame api call");
+      log.info({ method, url: path, status: res.status, ms, attempt: attempt + 1 }, "tame api call");
 
       if (res.status === 401) {
         throw new TameApiError("unauthorized", `401 from ${path} — TAME_BOT_TOKEN mismatch`, 401);
@@ -364,12 +385,17 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
       if (res.status === 404) {
         throw new TameApiError("not_found", `404 from ${path}`, 404);
       }
+      if (res.status === 429) {
+        lastError = new TameApiError("client", `rate limited on ${path}`, 429);
+        if (attempt < REQUEST_MAX_ATTEMPTS - 1) continue;
+        throw lastError;
+      }
       if (res.status >= 400 && res.status < 500) {
         throw new TameApiError("client", `HTTP ${res.status} from ${path}`, res.status);
       }
       if (res.status >= 500) {
         lastError = new TameApiError("server", `HTTP ${res.status} from ${path}`, res.status);
-        if (attempt === 0) continue;
+        if (attempt < REQUEST_MAX_ATTEMPTS - 1) continue;
         throw lastError;
       }
       return (await res.json()) as T;
@@ -377,11 +403,9 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
       const ms = Math.round(performance.now() - startedAt);
 
       if (err instanceof TameApiError) {
-        // Don't retry auth/404/4xx — only the 5xx branch loops.
-        if (err.kind !== "server") throw err;
+        if (!isRetryableTameError(err) || attempt >= REQUEST_MAX_ATTEMPTS - 1) throw err;
         lastError = err;
-        if (attempt === 0) continue;
-        throw err;
+        continue;
       }
 
       // AbortError, fetch failure, DNS, etc. — treat as network.
@@ -390,9 +414,12 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
         isTimeout ? "timeout" : "network",
         err instanceof Error ? err.message : String(err),
       );
-      log.warn({ method: opts.method ?? "GET", url: path, ms, kind: wrapped.kind }, "tame api error");
+      log.warn(
+        { method: opts.method ?? "GET", url: path, ms, kind: wrapped.kind, attempt: attempt + 1 },
+        "tame api error",
+      );
       lastError = wrapped;
-      if (attempt === 0) continue;
+      if (attempt < REQUEST_MAX_ATTEMPTS - 1) continue;
       throw wrapped;
     }
   }
@@ -490,7 +517,7 @@ export const tame = {
     try {
       return await requestJson<PlayerPreview>(
         `/api/bot/preview/${encodeURIComponent(uuid)}`,
-        { withBotAuth: true, timeoutMs: 12_000 },
+        { withBotAuth: true, timeoutMs: 20_000 },
       );
     } catch (err) {
       if (err instanceof TameApiError && err.kind === "not_found") return null;
@@ -512,7 +539,7 @@ export const tame = {
     try {
       return await requestJson<{ uuid: string; ign: string; preview: PlayerPreview | null }>(
         `/api/bot/track/${encodeURIComponent(trimmed)}`,
-        { withBotAuth: true, method: "POST", timeoutMs: 15_000 },
+        { withBotAuth: true, method: "POST", timeoutMs: 25_000 },
       );
     } catch (err) {
       if (err instanceof TameApiError && err.kind === "not_found") return null;

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { tame } from "../api/tame.ts";
 import { buildCompareEmbed } from "../embeds/compare.ts";
+import { mapLimit } from "../util.ts";
 import type { BotCommand } from "./types.ts";
 
 const builder = new SlashCommandBuilder()
@@ -43,11 +44,9 @@ export const compareCommand: BotCommand = {
       return;
     }
 
-    // Pull previews concurrently for the FKDR text row. Each preview is null
-    // when the player hasn't been tracked yet — the embed handles that.
-    const previewSettled = await Promise.allSettled(resolved.map((p) => tame.previewLive(p.uuid)));
-    const previews = previewSettled.map((r) => (r.status === "fulfilled" ? r.value : null));
-
+    // Pull previews with modest concurrency so compare doesn't burst the
+    // preview rate limit when four players are requested at once.
+    const previews = await mapLimit(resolved, 2, async (player) => tame.previewLive(player.uuid));
     await interaction.editReply({
       embeds: [buildCompareEmbed(resolved.map((p) => p.ign), previews)],
     });

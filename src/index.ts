@@ -187,6 +187,9 @@ function humanizeCommandError(err: unknown): string {
     if (err.kind === "timeout" || err.kind === "network") {
       return "tame.gg/api looks unreachable right now. Try again in a moment.";
     }
+    if (err.kind === "client" && err.status === 429) {
+      return "tame.gg/api is busy right now. Try again in a moment.";
+    }
     if (err.kind === "server") {
       return "tame.gg/api returned an error. Try again in a moment.";
     }
