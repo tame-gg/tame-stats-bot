@@ -86,6 +86,22 @@ export type PlayerTrustStatus = {
   };
 };
 
+export type BedwarsCardMeta = {
+  star: number;
+  starFloor: number;
+  starNext: number;
+  starColor: string;
+  expCurrent: number;
+  expRequired: number;
+  tokens: number | null;
+  iron: number | null;
+  gold: number | null;
+  diamonds: number | null;
+  emeralds: number | null;
+  slumberTickets: number | null;
+  slumberTotal: number | null;
+};
+
 export type PlayerPreview = {
   uuid: string;
   ign: string;
@@ -99,6 +115,8 @@ export type PlayerPreview = {
   discordUsername: string | null;
   /** Community blacklist tags (Urchin + Seraph), when the feature is on. */
   trust: PlayerTrustStatus | null;
+  /** Bedwars star progress + resource totals for stat cards. */
+  bedwars?: BedwarsCardMeta | null;
 };
 
 export type HypixelSession = {
