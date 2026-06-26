@@ -321,6 +321,8 @@ type RequestOpts = {
   timeoutMs?: number;
   /** HTTP method. Defaults to GET. POST is used by the track endpoint. */
   method?: "GET" | "POST";
+  /** JSON request body (POST). */
+  body?: unknown;
 };
 
 const REQUEST_MAX_ATTEMPTS = 3;
@@ -360,9 +362,15 @@ async function requestJson<T>(path: string, opts: RequestOpts): Promise<T> {
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
       if (opts.withBotAuth) headers.Authorization = `Bearer ${env.TAME_BOT_TOKEN}`;
+      if (opts.body !== undefined) headers["Content-Type"] = "application/json";
 
       const method = opts.method ?? "GET";
-      const res = await fetch(url, { method, headers, signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetch(url, {
+        method,
+        headers,
+        ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
       const ms = Math.round(performance.now() - startedAt);
       log.info({ method, url: path, status: res.status, ms, attempt: attempt + 1 }, "tame api call");
 
@@ -635,31 +643,13 @@ export const tame = {
 
   /** Periodic telemetry for the tame.gg admin Discord bot dashboard. */
   async postHeartbeat(payload: Record<string, unknown>): Promise<{ presence?: PresenceConfig }> {
-    const url = `${apiBaseUrl}/api/bot/heartbeat`;
-    const startedAt = performance.now();
-    const res = await fetch(url, {
+    const body = await requestJson<{ ok?: boolean; presence?: PresenceConfig }>("/api/bot/heartbeat", {
+      withBotAuth: true,
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.TAME_BOT_TOKEN}`,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10_000),
+      body: payload,
+      timeoutMs: 10_000,
     });
-    const ms = Math.round(performance.now() - startedAt);
-    log.info({ method: "POST", url: "/api/bot/heartbeat", status: res.status, ms }, "tame api call");
-    if (!res.ok) {
-      throw new TameApiError(
-        res.status === 401 ? "unauthorized" : res.status >= 500 ? "server" : "client",
-        `HTTP ${res.status} from /api/bot/heartbeat`,
-        res.status,
-      );
-    }
-    try {
-      return (await res.json()) as { presence?: PresenceConfig };
-    } catch {
-      return {};
-    }
+    return body.presence ? { presence: body.presence } : {};
   },
 
   /** Sync command audit rows from local SQLite to tame.gg Postgres. */

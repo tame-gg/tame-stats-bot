@@ -20,6 +20,10 @@ import { applyPresenceConfig } from "./presence.ts";
 import { startPoller, stopPoller, waitForInflightTick } from "./poller/index.ts";
 import { syncLinksOnReady } from "./sync/links.ts";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 migrate();
 initTelemetryStore();
 
@@ -34,6 +38,10 @@ client.once("ready", async (readyClient) => {
     log.warn({ err }, "application.fetch failed");
   });
   await syncLinksOnReady(readyClient);
+
+  // Stagger tame.gg calls so cold-start (links → presence → heartbeat) does not burst.
+  await sleep(750);
+
   const presenceConfig = await tame.getPresenceConfig().catch((err) => {
     log.debug({ err }, "initial presence config fetch failed");
     return null;
@@ -49,6 +57,8 @@ client.once("ready", async (readyClient) => {
     }
   }
   startPoller(readyClient);
+
+  await sleep(1_000);
   startHeartbeatReporter(readyClient);
 });
 
