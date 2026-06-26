@@ -29,7 +29,7 @@ export function applyPresenceConfig(client: Client<true>, config: PresenceConfig
     config.activityType === "custom"
       ? [{ name: "Custom Status", type: ActivityType.Custom, state: message }]
       : config.activityType === "streaming"
-        ? [{ name: message, type: ActivityType.Streaming, url: "https://www.twitch.tv/tamegg" }]
+        ? [{ name: message, type: ActivityType.Streaming, url: "https://www.twitch.tv/notasianrizz }]
         : [{ name: message, type: activityType }];
 
   client.user.setPresence({
