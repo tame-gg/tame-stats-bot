@@ -141,6 +141,33 @@ export function upsertLink(discordUserId: string, uuid: string, ign: string, gui
   upsertLinkQuery.run(discordUserId, uuid, ign, guildId, Date.now());
 }
 
+export function upsertLinkAt(
+  discordUserId: string,
+  uuid: string,
+  ign: string,
+  guildId: string | null,
+  linkedAtMs: number,
+): void {
+  upsertLinkQuery.run(discordUserId, uuid, ign, guildId, linkedAtMs);
+}
+
+export function listAllLinks(): LinkRow[] {
+  return db.query("SELECT discord_user_id, uuid, ign, guild_id, linked_at FROM links ORDER BY linked_at DESC").all() as LinkRow[];
+}
+
+const countLinksQuery = db.query("SELECT count(*) AS count FROM links");
+const countWatchesQuery = db.query("SELECT count(*) AS count FROM watches");
+
+export function countLinks(): number {
+  const row = countLinksQuery.get() as { count: number } | null;
+  return Number(row?.count ?? 0);
+}
+
+export function countWatches(): number {
+  const row = countWatchesQuery.get() as { count: number } | null;
+  return Number(row?.count ?? 0);
+}
+
 export function deleteLink(discordUserId: string): boolean {
   return deleteLinkQuery.run(discordUserId).changes > 0;
 }

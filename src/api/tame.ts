@@ -555,6 +555,44 @@ export const tame = {
     }
   },
 
+  /** Full discord_links roster for cold-start resync from Postgres. */
+  async listDiscordLinks(): Promise<
+    Array<{
+      discordUserId: string;
+      discordUsername: string;
+      uuid: string;
+      ign: string;
+      guildId: string | null;
+      linkedAt: number;
+    }>
+  > {
+    return requestJson("/api/bot/discord-links", { withBotAuth: true, timeoutMs: 15_000 });
+  },
+
+  /** Periodic telemetry for the tame.gg admin Discord bot dashboard. */
+  async postHeartbeat(payload: Record<string, unknown>): Promise<void> {
+    const url = `${apiBaseUrl}/api/bot/heartbeat`;
+    const startedAt = performance.now();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.TAME_BOT_TOKEN}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const ms = Math.round(performance.now() - startedAt);
+    log.info({ method: "POST", url: "/api/bot/heartbeat", status: res.status, ms }, "tame api call");
+    if (!res.ok) {
+      throw new TameApiError(
+        res.status === 401 ? "unauthorized" : res.status >= 500 ? "server" : "client",
+        `HTTP ${res.status} from /api/bot/heartbeat`,
+        res.status,
+      );
+    }
+  },
+
   /**
    * Returns whatever Discord handle the player has set on their Hypixel
    * profile via in-game `/socials`. Used by the bot's /link verification

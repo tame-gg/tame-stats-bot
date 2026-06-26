@@ -8,7 +8,9 @@ import { env } from "./env.ts";
 import { startHealthServer, stopHealthServer } from "./health.ts";
 import { dispatchButton } from "./interactions/buttons.ts";
 import { log } from "./log.ts";
+import { startHeartbeatReporter, stopHeartbeatReporter } from "./panel/heartbeat.ts";
 import { startPoller, stopPoller, waitForInflightTick } from "./poller/index.ts";
+import { syncLinksOnReady } from "./sync/links.ts";
 
 migrate();
 
@@ -19,10 +21,10 @@ const client = new Client({
 client.once("ready", async (readyClient) => {
   log.info({ user: readyClient.user.tag }, "Discord client ready");
   await runStartupSelfCheck();
-  // Discord's PUT is idempotent and the call is fast; doing it on every boot
-  // is cheaper than teaching every host to run `bun run register` manually.
-  // If the env var is explicitly "0" / "false", skip — handy for reducing
-  // Discord chatter on rapid restarts.
+  await readyClient.application?.fetch().catch((err) => {
+    log.warn({ err }, "application.fetch failed");
+  });
+  await syncLinksOnReady(readyClient);
   if (env.AUTO_REGISTER_COMMANDS) {
     try {
       await registerSlashCommands();
@@ -31,6 +33,7 @@ client.once("ready", async (readyClient) => {
     }
   }
   startPoller(readyClient);
+  startHeartbeatReporter(readyClient);
 });
 
 client.on("interactionCreate", (interaction) => {
@@ -151,6 +154,7 @@ async function shutdown(signal: string): Promise<void> {
   const deadline = Date.now() + 10_000;
 
   stopPoller();
+  stopHeartbeatReporter();
   await waitForInflightTick(Math.max(0, deadline - Date.now())).catch((err) =>
     log.warn({ err }, "in-flight tick did not finish in time"),
   );
