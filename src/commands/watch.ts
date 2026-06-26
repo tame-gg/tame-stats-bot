@@ -4,6 +4,8 @@ import { addWatch, countWatchesForUser } from "../db.ts";
 import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { log } from "../log.ts";
 import { seedWatchedPlayer } from "../poller/index.ts";
+import { buildWatchAlertRow, formatExpiryRemaining } from "../watch/components.ts";
+import { WATCH_DURATION_MS } from "../watch/constants.ts";
 import type { BotCommand } from "./types.ts";
 
 const WATCH_LIMIT = 25;
@@ -71,8 +73,9 @@ export const watchCommand: BotCommand = {
     // Plain ephemeral content per the design — no embed wrapping. Bold the
     // canonical IGN (Mojang display-cased), italicize the state suffix.
     const baseLine = inserted
-      ? `Watching **${resolved.ign}** — you'll get a DM when they log on.`
-      : `**${resolved.ign}** is already on your watchlist.`;
+      ? `Watching **${resolved.ign}** — you'll get a DM when they log on or change activity.`
+      : `**${resolved.ign}** watch renewed for 24 hours.`;
+    const expiryLine = `*Expires in ${formatExpiryRemaining(Date.now() + WATCH_DURATION_MS)}.*`;
     const stateLine = session?.online
       ? `*They're online right now — alert fires next time they come back online after a logout.*`
       : `*They're offline. Alert fires next time they log on.*`;
@@ -80,7 +83,12 @@ export const watchCommand: BotCommand = {
       ? `✓ DMs work — you'll get pings.`
       : `⚠️ I can't DM you. Open Discord → Settings → Privacy & Safety → enable **Allow direct messages from server members**, or alerts won't reach you.`;
 
-    await interaction.editReply(`${baseLine}\n${stateLine}\n${dmLine}`);
+    await interaction.editReply({
+      content: `${baseLine}\n${expiryLine}\n${stateLine}\n${dmLine}`,
+      components: [
+        buildWatchAlertRow(resolved.ign, resolved.uuid, tame.liveUrl(resolved.ign), tame.playerUrl(resolved.ign)),
+      ],
+    });
   },
 };
 watchCommand.json = watchCommand.data.toJSON();

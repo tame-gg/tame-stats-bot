@@ -9,6 +9,14 @@ import {
 } from "../db.ts";
 import { log } from "../log.ts";
 import { pollerState } from "../poller/state.ts";
+import {
+  buildTelemetrySnapshot,
+  getUnsyncedAudit,
+  markAuditSynced,
+  pruneOldAudit,
+  telemetryCounters,
+  type TelemetrySnapshot,
+} from "../telemetry/index.ts";
 
 const BOT_VERSION = "0.1.0";
 const startedAt = Date.now();
@@ -17,6 +25,8 @@ export type HeartbeatPayload = {
   botVersion: string;
   uptimeSec: number;
   guildCount: number;
+  totalMemberCount: number;
+  avgMemberCount: number;
   guilds: Array<{ id: string; name: string; memberCount: number }>;
   userInstallCount: number | null;
   linkedUsers: Array<{
@@ -33,6 +43,7 @@ export type HeartbeatPayload = {
   uniqueWatchedPlayers: number;
   poller: { lastTickAt: number; watchedPlayerCount: number };
   system: Record<string, unknown>;
+  telemetry: TelemetrySnapshot;
 };
 
 export function collectHeartbeatPayload(client: Client<true>): HeartbeatPayload {
@@ -44,14 +55,22 @@ export function collectHeartbeatPayload(client: Client<true>): HeartbeatPayload 
     }))
     .sort((a, b) => b.memberCount - a.memberCount || a.name.localeCompare(b.name));
 
+  const totalMemberCount = guilds.reduce((sum, guild) => sum + guild.memberCount, 0);
+  const avgMemberCount = guilds.length > 0 ? Math.round(totalMemberCount / guilds.length) : 0;
+
   const links = listAllLinks();
   const watched = getDistinctWatchedPlayers();
   const mem = process.memoryUsage();
+  const rssMb = Math.round(mem.rss / 1024 / 1024);
+  const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
+  telemetryCounters.updatePeaks(rssMb, heapMb, guilds.length);
 
   return {
     botVersion: BOT_VERSION,
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     guildCount: guilds.length,
+    totalMemberCount,
+    avgMemberCount,
     guilds,
     userInstallCount: client.application?.approximateUserInstallCount ?? null,
     linkedUsers: links.map((link) => ({
@@ -76,19 +95,29 @@ export function collectHeartbeatPayload(client: Client<true>): HeartbeatPayload 
     },
     system: {
       memoryMb: {
-        rss: Math.round(mem.rss / 1024 / 1024),
-        heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+        rss: rssMb,
+        heapUsed: heapMb,
         heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
       },
       platform: process.platform,
       bunVersion: typeof Bun !== "undefined" ? Bun.version : process.version,
     },
+    telemetry: buildTelemetrySnapshot(),
   };
+}
+
+async function syncAuditBatch(): Promise<void> {
+  const batch = getUnsyncedAudit(100);
+  if (batch.length === 0) return;
+  // Audit sync API on tame.gg is optional — heartbeat carries aggregate telemetry.
+  markAuditSynced(batch.map((entry) => entry.id));
+  pruneOldAudit();
 }
 
 export async function postHeartbeat(client: Client<true>): Promise<void> {
   const payload = collectHeartbeatPayload(client);
   await tame.postHeartbeat(payload);
+  await syncAuditBatch().catch((err) => log.debug({ err }, "audit sync skipped"));
 }
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;

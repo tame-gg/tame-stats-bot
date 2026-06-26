@@ -3,6 +3,13 @@ import { runStartupSelfCheck } from "./api/self-check.ts";
 import { TameApiError } from "./api/tame.ts";
 import { dispatchAutocomplete, dispatchCommand } from "./commands/index.ts";
 import { migrate } from "./db.ts";
+import {
+  initTelemetryStore,
+  recordAutocompleteAudit,
+  recordButtonAudit,
+  recordCommandAudit,
+  telemetryCounters,
+} from "./telemetry/index.ts";
 import { registerSlashCommands } from "./deploy-commands.ts";
 import { env } from "./env.ts";
 import { startHealthServer, stopHealthServer } from "./health.ts";
@@ -13,6 +20,7 @@ import { startPoller, stopPoller, waitForInflightTick } from "./poller/index.ts"
 import { syncLinksOnReady } from "./sync/links.ts";
 
 migrate();
+initTelemetryStore();
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -36,11 +44,32 @@ client.once("ready", async (readyClient) => {
   startHeartbeatReporter(readyClient);
 });
 
+client.on("guildCreate", (guild) => {
+  telemetryCounters.guildJoin();
+  log.info({ guildId: guild.id, name: guild.name }, "guild joined");
+});
+
+client.on("guildDelete", (guild) => {
+  telemetryCounters.guildLeave();
+  log.info({ guildId: guild.id, name: guild.name }, "guild left");
+});
+
 client.on("interactionCreate", (interaction) => {
   if (interaction.isAutocomplete()) {
-    void dispatchAutocomplete(interaction).catch((err) => {
-      log.error({ err, commandName: interaction.commandName }, "autocomplete failed");
-    });
+    const startedAt = performance.now();
+    void dispatchAutocomplete(interaction)
+      .then(() => {
+        recordAutocompleteAudit(interaction, true, Math.round(performance.now() - startedAt));
+      })
+      .catch((err) => {
+        recordAutocompleteAudit(
+          interaction,
+          false,
+          Math.round(performance.now() - startedAt),
+          err instanceof Error ? err.message : String(err),
+        );
+        log.error({ err, commandName: interaction.commandName }, "autocomplete failed");
+      });
     return;
   }
 
@@ -48,24 +77,33 @@ client.on("interactionCreate", (interaction) => {
     const startedAt = performance.now();
     void dispatchCommand(interaction)
       .then(() => {
+        const durationMs = Math.round(performance.now() - startedAt);
+        recordCommandAudit(interaction, true, durationMs);
         log.info(
           {
             command: interaction.commandName,
             userId: interaction.user.id,
             guildId: interaction.guildId,
-            durationMs: Math.round(performance.now() - startedAt),
+            durationMs,
           },
           "command ok",
         );
       })
       .catch(async (err) => {
+        const durationMs = Math.round(performance.now() - startedAt);
+        recordCommandAudit(
+          interaction,
+          false,
+          durationMs,
+          err instanceof Error ? err.message : String(err),
+        );
         log.error(
           {
             err,
             command: interaction.commandName,
             userId: interaction.user.id,
             guildId: interaction.guildId,
-            durationMs: Math.round(performance.now() - startedAt),
+            durationMs,
           },
           "command failed",
         );
@@ -85,31 +123,37 @@ client.on("interactionCreate", (interaction) => {
     const startedAt = performance.now();
     void dispatchButton(interaction)
       .then(() => {
+        const durationMs = Math.round(performance.now() - startedAt);
+        recordButtonAudit(interaction, true, durationMs);
         log.info(
           {
             customId: interaction.customId,
             userId: interaction.user.id,
             guildId: interaction.guildId,
-            durationMs: Math.round(performance.now() - startedAt),
+            durationMs,
           },
           "button ok",
         );
       })
       .catch(async (err) => {
+        const durationMs = Math.round(performance.now() - startedAt);
+        recordButtonAudit(
+          interaction,
+          false,
+          durationMs,
+          err instanceof Error ? err.message : String(err),
+        );
         log.error(
           {
             err,
             customId: interaction.customId,
             userId: interaction.user.id,
             guildId: interaction.guildId,
-            durationMs: Math.round(performance.now() - startedAt),
+            durationMs,
           },
           "button failed",
         );
         const message = humanizeCommandError(err);
-        // Buttons may be deferred (most are) or untouched (early-rejected
-        // before we touched them). Mirror the slash-command branch's
-        // edit-vs-reply choice on the same `deferred || replied` flag.
         if (interaction.deferred || interaction.replied) {
           await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => null);
         } else {

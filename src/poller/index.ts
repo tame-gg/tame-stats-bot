@@ -8,28 +8,42 @@ import {
   type GuildTextBasedChannel,
 } from "discord.js";
 import { TameApiError, tame, type HypixelSession } from "../api/tame.ts";
-import { getDistinctWatchedPlayers, getGuildConfigsWithAlerts, getWatchersForUuid } from "../db.ts";
+import {
+  getDistinctWatchedPlayers,
+  getExpiredUnnotifiedWatches,
+  getGuildConfigsWithAlerts,
+  getWatchersForUuid,
+  markExpiryNotified,
+  type WatchRow,
+} from "../db.ts";
 import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { log } from "../log.ts";
-import { compactSession, mapLimit } from "../util.ts";
+import { mapLimit } from "../util.ts";
+import {
+  alertDescription,
+  detectSessionChanges,
+  describeSessionActivity,
+  type SessionChange,
+} from "./session-change.ts";
 import { POLLER_CONSTANTS, pollerState } from "./state.ts";
+import { buildWatchAlertRow, buildWatchExpiryRow } from "../watch/components.ts";
 
 let scheduled: ReturnType<typeof setTimeout> | null = null;
 let stopped = false;
 
-function cameOnline(previous: HypixelSession | undefined, next: HypixelSession): boolean {
-  return !!previous && previous.online === false && next.online === true;
+function alertDedupKey(uuid: string, userId: string, change: SessionChange): string {
+  return `${uuid}:${userId}:${change.kind}:${change.label}`;
 }
 
-function shouldSuppressAlert(uuid: string, userId: string, now: number): boolean {
-  const key = `${uuid}:${userId}`;
+function shouldSuppressAlert(uuid: string, userId: string, change: SessionChange, now: number): boolean {
+  const key = alertDedupKey(uuid, userId, change);
   const last = pollerState.lastAlertAt.get(key);
   if (last !== undefined && now - last < POLLER_CONSTANTS.ALERT_DEDUP_MS) return true;
   return false;
 }
 
-function recordAlert(uuid: string, userId: string, now: number): void {
-  pollerState.lastAlertAt.set(`${uuid}:${userId}`, now);
+function recordAlert(uuid: string, userId: string, change: SessionChange, now: number): void {
+  pollerState.lastAlertAt.set(alertDedupKey(uuid, userId, change), now);
 }
 
 function isUserDmLocked(userId: string, now: number): boolean {
@@ -55,45 +69,31 @@ function recordDmSuccess(userId: string): void {
   pollerState.dmFailures.delete(userId);
 }
 
-/**
- * Watcher DM (and guild-channel mirror) alert embed. Player-focused →
- * gold sidebar, `tame.gg / now online` author eyebrow, italic single-line
- * description. The embed shell stays monochrome; the gold sidebar is the
- * only color cue, matching the rest of the player-focused embeds.
- */
-function buildAlertEmbed(ign: string, session: HypixelSession): EmbedBuilder {
-  // `compactSession` returns "Online" when there's no gameType/mode info,
-  // and "Bedwars · Doubles · …" when there is. Keep its capitalization —
-  // game/mode names are proper nouns and lowercasing reads as a bug.
-  const detail = compactSession(session);
-  const description = detail !== "Online"
-    ? `*Just logged on — playing ${detail}.*`
-    : `*Just logged on.*`;
+function buildAlertEmbed(ign: string, change: SessionChange): EmbedBuilder {
+  const author = change.kind === "login" ? "now online" : "status update";
   return new EmbedBuilder()
-    .setAuthor(themeAuthor("now online"))
+    .setAuthor(themeAuthor(author))
     .setTitle(ign)
     .setURL(tame.liveUrl(ign))
     .setColor(THEME.accent)
-    .setDescription(description)
+    .setDescription(alertDescription(change))
     .setFooter(themeFooter(`${ign}/live`));
 }
 
-function buildAlertRow(ign: string): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setLabel("Open live tracker").setStyle(ButtonStyle.Link).setURL(tame.liveUrl(ign)),
-    new ButtonBuilder().setLabel("Profile").setStyle(ButtonStyle.Link).setURL(tame.playerUrl(ign)),
-  );
+function buildAlertRow(ign: string, uuid: string) {
+  return buildWatchAlertRow(ign, uuid, tame.liveUrl(ign), tame.playerUrl(ign));
 }
 
 async function tryGuildChannelAlert(
   client: Client,
   discordUserId: string,
   ign: string,
-  session: HypixelSession,
+  uuid: string,
+  change: SessionChange,
 ): Promise<boolean> {
   const configs = getGuildConfigsWithAlerts();
-  const embed = buildAlertEmbed(ign, session);
-  const row = buildAlertRow(ign);
+  const embed = buildAlertEmbed(ign, change);
+  const row = buildAlertRow(ign, uuid);
   for (const config of configs) {
     if (!config.alert_channel_id) continue;
     const guild = client.guilds.cache.get(config.guild_id);
@@ -127,7 +127,8 @@ async function tryDmAlert(
   client: Client,
   discordUserId: string,
   ign: string,
-  session: HypixelSession,
+  uuid: string,
+  change: SessionChange,
   now: number,
 ): Promise<boolean> {
   if (isUserDmLocked(discordUserId, now)) {
@@ -140,7 +141,7 @@ async function tryDmAlert(
     return false;
   }
   try {
-    await user.send({ embeds: [buildAlertEmbed(ign, session)], components: [buildAlertRow(ign)] });
+    await user.send({ embeds: [buildAlertEmbed(ign, change)], components: [buildAlertRow(ign, uuid)] });
     recordDmSuccess(discordUserId);
     return true;
   } catch (err) {
@@ -154,11 +155,42 @@ async function notifyWatcher(
   client: Client,
   discordUserId: string,
   ign: string,
-  session: HypixelSession,
+  uuid: string,
+  change: SessionChange,
   now: number,
 ): Promise<boolean> {
-  if (await tryGuildChannelAlert(client, discordUserId, ign, session)) return true;
-  return tryDmAlert(client, discordUserId, ign, session, now);
+  if (await tryGuildChannelAlert(client, discordUserId, ign, uuid, change)) return true;
+  return tryDmAlert(client, discordUserId, ign, uuid, change, now);
+}
+
+async function notifyWatchExpiry(client: Client, watch: WatchRow, now: number): Promise<void> {
+  if (isUserDmLocked(watch.discord_user_id, now)) {
+    markExpiryNotified(watch.discord_user_id, watch.uuid);
+    return;
+  }
+  const user = await client.users.fetch(watch.discord_user_id).catch(() => null);
+  if (!user) {
+    recordDmFailure(watch.discord_user_id, now);
+    markExpiryNotified(watch.discord_user_id, watch.uuid);
+    return;
+  }
+  const embed = new EmbedBuilder()
+    .setAuthor(themeAuthor("watch expired"))
+    .setTitle(watch.ign)
+    .setColor(THEME.accent)
+    .setDescription(
+      `*Your 24-hour watch on **${watch.ign}** has expired. Tap below to extend for another day.*`,
+    )
+    .setFooter(themeFooter(`${watch.ign}/live`));
+  try {
+    await user.send({ embeds: [embed], components: [buildWatchExpiryRow(watch.uuid)] });
+    recordDmSuccess(watch.discord_user_id);
+  } catch (err) {
+    recordDmFailure(watch.discord_user_id, now);
+    log.debug({ err, userId: watch.discord_user_id }, "watch expiry DM failed");
+  } finally {
+    markExpiryNotified(watch.discord_user_id, watch.uuid);
+  }
 }
 
 type FetchedSession = {
@@ -176,8 +208,6 @@ async function fetchAllSessions(
       return { player, session, ok: true };
     } catch (err) {
       if (err instanceof TameApiError) {
-        // Don't churn the alert state on transient errors — treat as offline
-        // and mark the call as failed so the backoff logic can act.
         log.debug({ err, uuid: player.uuid, kind: err.kind }, "session fetch failed");
       } else {
         log.warn({ err, uuid: player.uuid }, "unexpected session fetch error");
@@ -217,14 +247,25 @@ function checkWatchedRosterSize(count: number): void {
   }
 }
 
+async function processExpiredWatches(client: Client, now: number): Promise<void> {
+  const expired = getExpiredUnnotifiedWatches(now);
+  for (const watch of expired) {
+    await notifyWatchExpiry(client, watch, now);
+  }
+}
+
 export async function tick(client: Client): Promise<void> {
   const startedAt = performance.now();
-  const watched = getDistinctWatchedPlayers();
+  const now = Date.now();
+
+  await processExpiredWatches(client, now);
+
+  const watched = getDistinctWatchedPlayers(now);
   checkWatchedRosterSize(watched.length);
 
   if (watched.length === 0) {
     pollerState.firstTickComplete = true;
-    pollerState.lastTickAt = Date.now();
+    pollerState.lastTickAt = now;
     return;
   }
 
@@ -237,59 +278,60 @@ export async function tick(client: Client): Promise<void> {
       { watched: watched.length, failures, durationMs: Math.round(performance.now() - startedAt) },
       "first tick — populating baseline",
     );
-    for (const { player, session } of fetched) {
-      pollerState.lastKnown.set(player.uuid, session);
+    for (const { player, session, ok } of fetched) {
+      if (ok) pollerState.lastKnown.set(player.uuid, session);
     }
     pollerState.firstTickComplete = true;
-    pollerState.lastTickAt = Date.now();
+    pollerState.lastTickAt = now;
     applyBackoff(failureRatio);
     return;
   }
 
-  const now = Date.now();
   let alertsSent = 0;
   for (const { player, session, ok } of fetched) {
+    if (!ok) continue;
     const previous = pollerState.lastKnown.get(player.uuid);
-    // Don't trigger an alert from a known-bad fetch — without `ok`, `session`
-    // is the synthetic `{ online: false }` we substituted, which would create
-    // a false offline edge that the next successful fetch then "restores".
-    if (ok && cameOnline(previous, session)) {
-      const watchers = getWatchersForUuid(player.uuid);
+    const changes = detectSessionChanges(previous, session);
+    if (changes.length === 0) {
+      pollerState.lastKnown.set(player.uuid, session);
+      continue;
+    }
+
+    const watchers = getWatchersForUuid(player.uuid, now);
+    for (const change of changes) {
       for (const watcher of watchers) {
-        if (shouldSuppressAlert(player.uuid, watcher.discord_user_id, now)) {
-          log.debug(
-            { uuid: player.uuid, userId: watcher.discord_user_id },
-            "alert suppressed by dedup",
-          );
+        if (shouldSuppressAlert(player.uuid, watcher.discord_user_id, change, now)) {
           continue;
         }
         const sent = await notifyWatcher(
           client,
           watcher.discord_user_id,
           watcher.ign,
-          session,
+          player.uuid,
+          change,
           now,
         );
         if (sent) {
-          recordAlert(player.uuid, watcher.discord_user_id, now);
+          recordAlert(player.uuid, watcher.discord_user_id, change, now);
           alertsSent += 1;
           log.info(
             {
               uuid: player.uuid,
               ign: watcher.ign,
               userId: watcher.discord_user_id,
-              gameType: session.gameType ?? null,
+              kind: change.kind,
+              label: change.label,
             },
             "alert delivered",
           );
         }
       }
     }
-    if (ok) pollerState.lastKnown.set(player.uuid, session);
+    pollerState.lastKnown.set(player.uuid, session);
   }
 
   applyBackoff(failureRatio);
-  pollerState.lastTickAt = Date.now();
+  pollerState.lastTickAt = now;
 
   log.info(
     {
@@ -324,7 +366,7 @@ function runOneTick(client: Client): void {
 export function startPoller(client: Client): void {
   if (scheduled || pollerState.inFlightTick) return;
   stopped = false;
-  log.info("starting watchlist poller");
+  log.info({ intervalMs: POLLER_CONSTANTS.BASE_INTERVAL_MS }, "starting watchlist poller");
   runOneTick(client);
 }
 
@@ -337,16 +379,6 @@ export function stopPoller(): void {
   log.info("watchlist poller stopped");
 }
 
-/**
- * Eagerly seed `lastKnown` for a UUID by fetching its current Hypixel
- * session right now. Without this, /watch only baselines on the next
- * scheduled tick (~60s lag), and the first online-edge after baseline
- * needs *another* tick after that — total ~2 minutes from /watch to
- * first alert. With this, baseline is instant and the very next tick
- * can fire.
- *
- * Errors are swallowed — the regular tick will retry the fetch.
- */
 export async function seedWatchedPlayer(uuid: string): Promise<HypixelSession | null> {
   try {
     const session = await tame.session(uuid);
@@ -358,11 +390,6 @@ export async function seedWatchedPlayer(uuid: string): Promise<HypixelSession | 
   }
 }
 
-/**
- * Resolves once the currently running tick (if any) has finished, or after
- * `timeoutMs` — whichever is first. Used by graceful shutdown so the bot
- * doesn't kill itself mid-DM-send.
- */
 export async function waitForInflightTick(timeoutMs: number): Promise<void> {
   const inflight = pollerState.inFlightTick;
   if (!inflight) return;
@@ -372,3 +399,5 @@ export async function waitForInflightTick(timeoutMs: number): Promise<void> {
     new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
   ]);
 }
+
+export { describeSessionActivity };

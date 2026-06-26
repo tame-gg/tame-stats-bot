@@ -89,7 +89,7 @@ export function themeAuthor(section: string): { name: string; iconURL: string; u
  * returns a real 96×102 PNG.
  */
 export function headUrl(uuid: string): string {
-  return `https://mc-heads.net/head/${encodeURIComponent(uuid)}/96`;
+  return `https://minotar.net/avatar/${encodeURIComponent(uuid)}/96`;
 }
 
 /**

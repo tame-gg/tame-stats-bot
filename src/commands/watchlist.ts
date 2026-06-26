@@ -1,8 +1,9 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import { tame, type HypixelSession } from "../api/tame.ts";
-import { getWatchesForUser } from "../db.ts";
+import { getActiveWatchesForUser } from "../db.ts";
 import { THEME, codeBlock, padLeft, padRight, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { compactSession, mapLimit } from "../util.ts";
+import { buildWatchlistRefreshRow, formatExpiryRemaining } from "../watch/components.ts";
 import type { BotCommand } from "./types.ts";
 
 const MAX_ROWS = 25;
@@ -12,7 +13,7 @@ export const watchlistCommand: BotCommand = {
   json: {} as never,
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const watches = getWatchesForUser(interaction.user.id);
+    const watches = getActiveWatchesForUser(interaction.user.id);
     if (watches.length === 0) {
       await interaction.editReply("Your watchlist is empty. Use `/watch <ign>` to add someone.");
       return;
@@ -41,18 +42,19 @@ export const watchlistCommand: BotCommand = {
       const dot = session?.online ? "●" : "○";
       const state = session?.online ? "online " : "offline";
       const detail = session?.online ? `· ${compactSession(session)}` : "";
-      return `${rank}  ${dot} ${ign}   ${state}${detail ? `   ${detail}` : ""}`;
+      const expiry = formatExpiryRemaining(watch.expires_at);
+      return `${rank}  ${dot} ${ign}   ${state}${detail ? `   ${detail}` : ""}   · ${expiry}`;
     });
 
     const embed = new EmbedBuilder()
       .setAuthor(themeAuthor("watchlist"))
       .setTitle(`${interaction.user.username}'s watchlist`)
       .setColor(THEME.sidebar)
-      .setDescription(`*${watches.length} watched · DM alerts on log-on.*`)
+      .setDescription(`*${watches.length} active · 24h watches · DM alerts on activity.*`)
       .addFields({ name: "​", value: codeBlock(lines), inline: false })
       .setFooter(themeFooter(null));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed], components: [buildWatchlistRefreshRow()] });
   },
 };
 watchlistCommand.json = watchlistCommand.data.toJSON();

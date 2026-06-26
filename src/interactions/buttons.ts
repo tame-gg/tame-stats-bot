@@ -1,10 +1,16 @@
-import { type ButtonInteraction, MessageFlags } from "discord.js";
+import { type ButtonInteraction, EmbedBuilder, MessageFlags } from "discord.js";
 import { tame, type BedwarsMode, type HypixelSession } from "../api/tame.ts";
+import { extendWatch, getWatch, touchWatchRefresh } from "../db.ts";
+import { THEME, themeAuthor, themeFooter } from "../embeds/theme.ts";
 import { buildBedwarsModeRows } from "../commands/games.ts";
 import { renderLeaderboard } from "../commands/leaderboard.ts";
 import { renderGlobalLeaderboard } from "../commands/globallb.ts";
 import { buildBedwarsStatsReply } from "../images/stats-reply.ts";
+import { describeSessionActivity, seedWatchedPlayer } from "../poller/index.ts";
 import { log } from "../log.ts";
+import { buildWatchAlertRow } from "../watch/components.ts";
+import { WATCH_REFRESH_COOLDOWN_MS } from "../watch/constants.ts";
+
 const BEDWARS_MODES: ReadonlySet<BedwarsMode> = new Set([
   "overall",
   "solo",
@@ -18,13 +24,6 @@ function isBedwarsMode(value: string | undefined): value is BedwarsMode {
   return value !== undefined && BEDWARS_MODES.has(value as BedwarsMode);
 }
 
-/**
- * Resolve the user id of whoever ran the slash command that produced this
- * message. discord.js v14.18 deprecated `Message.interaction` in favour of
- * `Message.interactionMetadata` — try the new field first, fall back to
- * the legacy one. Returns null if neither is set (extremely rare; the
- * message wasn't produced by an interaction at all).
- */
 function originalInvokerId(interaction: ButtonInteraction): string | null {
   const meta = interaction.message.interactionMetadata;
   if (meta && "user" in meta && meta.user) return meta.user.id;
@@ -33,12 +32,6 @@ function originalInvokerId(interaction: ButtonInteraction): string | null {
   return null;
 }
 
-/**
- * Reject clicks from anyone but the user who ran the slash command that
- * produced this message. Returns true when the click came from the
- * original invoker (or we couldn't determine — fail open rather than
- * locking everyone out on a discord.js field rename).
- */
 async function ensureInvoker(interaction: ButtonInteraction): Promise<boolean> {
   const invokerId = originalInvokerId(interaction);
   if (invokerId && invokerId !== interaction.user.id) {
@@ -51,15 +44,61 @@ async function ensureInvoker(interaction: ButtonInteraction): Promise<boolean> {
   return true;
 }
 
-/**
- * `/bedwars` mode-selector button click. Re-fetches the player's preview
- * via `tame.preview(uuid)` (no API-client bypass — the dispatcher reuses
- * the same client the slash command does) and re-renders the embed for
- * the requested mode, swapping the pressed button to Primary.
- */
+async function handleWatchExtend(interaction: ButtonInteraction, uuid: string): Promise<void> {
+  const extended = extendWatch(interaction.user.id, uuid);
+  if (!extended) {
+    await interaction.reply({
+      content: "That watch wasn't found — run `/watch` again to start fresh.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  const watch = getWatch(interaction.user.id, uuid);
+  await interaction.reply({
+    content: watch
+      ? `Extended watch on **${watch.ign}** for another 24 hours.`
+      : "Watch extended for another 24 hours.",
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+async function handleWatchRefresh(interaction: ButtonInteraction, uuid: string): Promise<void> {
+  const watch = getWatch(interaction.user.id, uuid);
+  if (!watch || watch.expires_at <= Date.now()) {
+    await interaction.reply({
+      content: "You don't have an active watch on that player.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const now = Date.now();
+  if (watch.last_refresh_at > 0 && now - watch.last_refresh_at < WATCH_REFRESH_COOLDOWN_MS) {
+    const waitSec = Math.ceil((WATCH_REFRESH_COOLDOWN_MS - (now - watch.last_refresh_at)) / 1000);
+    await interaction.reply({
+      content: `Update cooldown — try again in ${waitSec}s.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  touchWatchRefresh(interaction.user.id, uuid, now);
+  const session = await seedWatchedPlayer(uuid).catch(() => null);
+  const activity = describeSessionActivity(session ?? { online: false });
+  const embed = new EmbedBuilder()
+    .setAuthor(themeAuthor("watch · update"))
+    .setTitle(watch.ign)
+    .setColor(THEME.accent)
+    .setDescription(`*${activity}.*`)
+    .setFooter(themeFooter(`${watch.ign}/live`));
+  await interaction.editReply({
+    embeds: [embed],
+    components: [buildWatchAlertRow(watch.ign, uuid, tame.liveUrl(watch.ign), tame.playerUrl(watch.ign))],
+  });
+}
+
 async function handleBedwarsModeClick(interaction: ButtonInteraction): Promise<void> {
-  // customId shape: `bw:mode:<uuid>:<mode>`. UUIDs are dashed (36 chars,
-  // no colons internally) so the four-part split is unambiguous.
   const parts = interaction.customId.split(":");
   if (parts.length !== 4) {
     log.warn({ customId: interaction.customId }, "malformed bw:mode button");
@@ -72,9 +111,6 @@ async function handleBedwarsModeClick(interaction: ButtonInteraction): Promise<v
   }
   const mode = modeRaw;
 
-  // deferUpdate first so the click doesn't time out while we re-fetch —
-  // Discord gives us 3s to acknowledge, network round-trips can blow that
-  // budget on a cold preview cache.
   await interaction.deferUpdate();
 
   const preview = await tame.preview(uuid);
@@ -86,7 +122,6 @@ async function handleBedwarsModeClick(interaction: ButtonInteraction): Promise<v
     return;
   }
 
-  // Session is informational only — failure shouldn't block the embed swap.
   const session: HypixelSession = await tame
     .session(uuid)
     .catch(() => ({ online: false }) as const);
@@ -97,17 +132,10 @@ async function handleBedwarsModeClick(interaction: ButtonInteraction): Promise<v
     mode,
     buildBedwarsModeRows(uuid, mode),
   );
-  await interaction.editReply(reply);}
+  await interaction.editReply(reply);
+}
 
-/**
- * `/leaderboard` game-selector button click. Re-runs the same leaderboard
- * query for the requested game, preserving the metric the user originally
- * picked (encoded in the customId).
- */
 async function handleLeaderboardGameClick(interaction: ButtonInteraction): Promise<void> {
-  // customId shape: `lb:game:<game>:<metric>`. Game ids are snake_case
-  // (e.g. `murder_mystery`) and metric keys are camelCase (e.g. `finalKills`)
-  // — neither contains colons, so the four-part split is unambiguous.
   const parts = interaction.customId.split(":");
   if (parts.length !== 4) {
     log.warn({ customId: interaction.customId }, "malformed lb:game button");
@@ -138,10 +166,6 @@ async function handleLeaderboardGameClick(interaction: ButtonInteraction): Promi
   await interaction.editReply({ embeds: [result.embed], components: [result.row] });
 }
 
-/**
- * `/globallb` game-selector button click. Re-runs the global leaderboard for
- * the requested game, preserving the metric encoded in the customId.
- */
 async function handleGlobalLbGameClick(interaction: ButtonInteraction): Promise<void> {
   const parts = interaction.customId.split(":");
   if (parts.length !== 4) {
@@ -165,16 +189,25 @@ async function handleGlobalLbGameClick(interaction: ButtonInteraction): Promise<
   await interaction.editReply({ embeds: [result.embed], components: result.rows });
 }
 
-/**
- * Single button dispatcher. Switches on the `customId` prefix and routes
- * to the per-feature handler. Unknown prefixes are ignored — Discord
- * delivers stale customIds from old messages and we don't want to spam
- * the channel with "unknown button" replies.
- */
 export async function dispatchButton(interaction: ButtonInteraction): Promise<void> {
+  const customId = interaction.customId;
+
+  if (customId.startsWith("watch:extend:")) {
+    const uuid = customId.slice("watch:extend:".length);
+    if (!uuid) return;
+    await handleWatchExtend(interaction, uuid);
+    return;
+  }
+
+  if (customId.startsWith("watch:refresh:")) {
+    const uuid = customId.slice("watch:refresh:".length);
+    if (!uuid) return;
+    await handleWatchRefresh(interaction, uuid);
+    return;
+  }
+
   if (!(await ensureInvoker(interaction))) return;
 
-  const customId = interaction.customId;
   if (customId.startsWith("bw:mode:")) {
     await handleBedwarsModeClick(interaction);
     return;

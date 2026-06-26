@@ -1,7 +1,7 @@
 import type { HypixelSession } from "../api/tame.ts";
 
-const BASE_INTERVAL_MS = 60_000;
-const MAX_INTERVAL_MS = 5 * 60_000;
+const BASE_INTERVAL_MS = 15 * 60_000;
+const MAX_INTERVAL_MS = 15 * 60_000;
 
 /**
  * Per-tick rate at which `tame.session()` calls have been failing in a row.
@@ -38,8 +38,8 @@ export const pollerState = {
 export const POLLER_CONSTANTS = {
   BASE_INTERVAL_MS,
   MAX_INTERVAL_MS,
-  /** Suppress duplicate online alerts to the same watcher within this window. */
-  ALERT_DEDUP_MS: 10 * 60_000,
+  /** Suppress duplicate alerts for the same change within this window. */
+  ALERT_DEDUP_MS: 5 * 60_000,
   /** After this many consecutive DM failures, lock out for the cooldown. */
   DM_FAIL_THRESHOLD: 3,
   DM_LOCKOUT_MS: 24 * 60 * 60_000,

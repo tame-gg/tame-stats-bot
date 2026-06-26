@@ -253,17 +253,11 @@ function drawBackground(ctx: SKRSContext2D): void {
 
 async function drawHead(ctx: SKRSContext2D, uuid: string): Promise<void> {
   try {
-    const head = await loadImage(`https://mc-heads.net/head/${encodeURIComponent(uuid)}/180`);
+    const head = await loadImage(`https://minotar.net/avatar/${encodeURIComponent(uuid)}/180`);
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.45)";
     ctx.shadowBlur = 18;
     ctx.shadowOffsetY = 6;
-    roundRect(ctx, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE, 16);
-    ctx.fillStyle = "#000";
-    ctx.fill();
-    ctx.restore();
-
-    ctx.save();
     roundRect(ctx, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE, 16);
     ctx.clip();
     ctx.drawImage(head, HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE);
@@ -322,23 +316,19 @@ function drawStarBadge(ctx: SKRSContext2D, star: number | null): number {
 function drawRankTag(
   ctx: SKRSContext2D,
   segments: readonly RankSegment[],
-  primaryColor: string,
+  _primaryColor: string,
   x: number,
   baseline: number,
 ): void {
-  const bracket = primaryColor || ACCENT;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.font = `22px ${SANS_BOLD}`;
   let cx = x;
-  const draw = (text: string, color: string) => {
-    ctx.fillStyle = color || TEXT;
-    ctx.fillText(text, cx, baseline);
-    cx += ctx.measureText(text).width;
-  };
-  draw("[", bracket);
-  for (const seg of segments) draw(seg.text, seg.color);
-  draw("]", bracket);
+  for (const seg of segments) {
+    ctx.fillStyle = seg.color || TEXT;
+    ctx.fillText(seg.text, cx, baseline);
+    cx += ctx.measureText(seg.text).width;
+  }
 }
 
 function drawStatCell(
